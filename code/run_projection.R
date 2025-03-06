@@ -2,16 +2,15 @@ if(!require(pacman)) install.packages('pacman')
 pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful)
 theme_set(theme_classic())
 
-dir <- "~/Library/CloudStorage/Dropbox/gdp-temp/replication/"
+dir  <- "~/Library/CloudStorage/Dropbox/gdp-temp/replication/"
 code <- "~/Documents/GitHub/gdp_project/"
 
 set.seed(123)
 source(paste0(code, "code/0_funcs.R"))
 
-
 # SPECIFY PARAMETERS ------------------------------------------------------
 type <- "growth"
-lags <- 0
+lags <- 1
 spec <- "poly2"
 warming <- 2
 
@@ -59,7 +58,7 @@ df <- df.reg %>%
   filter(year >= min(pre.yrs))  %>% 
   filter(!is.na(g), !is.na(temp1), !is.na(y)) %>% 
   group_by(ID) %>%
-  add_tally() %>%
+    add_tally() %>%
   ungroup() %>%
   filter(n == max(n))
 
@@ -97,25 +96,24 @@ plotdf_mats(toPlot, base, proj)
 b0 <- coef(m)[sort(str_subset(names(coef(m)), "temp1"))] %>% as.matrix()
 b1 <- coef(m)[sort(str_subset(names(coef(m)), "temp2"))] %>% as.matrix()
 
-
 if(type == "levels"){
   for(tt in 2:TT) {
-    base$pr[,tt] <- base$temp[,tt]-base$temp[,tt-1]
-    proj$pr[,tt] <- proj$temp[,tt]-proj$temp[,tt-1]  
+    base$tcons[,tt] <- base$temp[,tt]-base$temp[,tt-1]
+    proj$tcons[,tt] <- proj$temp[,tt]-proj$temp[,tt-1]  
   }
 }else{
-  base$pr <- base$temp
-  proj$pr <- proj$temp
+  base$tcons <- base$temp
+  proj$tcons <- proj$temp
 }
 
 for(tt in post.ids){
   lls <- tt-0:lags
   
-  delta <- (proj$pr[, lls]   - base$pr[, lls]) %*% b0 + 
-           (proj$pr[, lls]^2 - base$pr[, lls]^2) %*% b1
+  delta <- (proj$tcons[, lls]   - base$tcons[, lls]) %*% b0 + 
+           (proj$tcons[, lls]^2 - base$tcons[, lls]^2) %*% b1
     
   # -- Growth
-  proj$g[,tt] <- base$g[, tt]+delta
+  proj$g[,tt] <- base$g[, tt] + delta
   
   # -- GDP
   proj$y[,tt] <- (1 + proj$g[, tt]) * proj$y[,tt-1]
@@ -134,6 +132,7 @@ pdf.all <- plotdf_mats(df.base$ID, base, proj, plt=F)%>%
 pdf.all %>% 
   ggplot() + 
   geom_line(aes(x = year, y = pc_dam, group = ID), alpha=.4)
+
 pdf.all %>% 
   ggplot() + 
   geom_line(aes(x = year, y = tot_dam, group = ID), alpha=.4)
@@ -145,15 +144,16 @@ pdf.all %>%
   filter(year == 2100) %>% 
   pivot_longer(cols = c(pc_dam, tot_dam), 
                names_to = 'type', values_to = 'dam') %>% 
-  ggplot() + geom_point(aes(x = temp, y = dam))+
-  geom_label(aes(x = temp, y = dam, label = ID)) + 
-  facet_wrap(~type, scales='free')
+  ggplot() + geom_point(aes(x = temp, y = dam, color =base))+
+  # geom_label(aes(x = temp, y = dam, label = ID)) + 
+  facet_wrap(~type, scales='free') 
 
-pdf.all  %>% filter(year == 2100) %>% 
+pdf.all %>% 
+  filter(year == 2100) %>% 
   mutate(rDam = rank(pc_dam), 
          rTemp = rank(temp)) %>%
   ggplot() + 
-  geom_point(aes(x= rTemp, y = rDam))
+  geom_point(aes(x= rTemp, y = rDam, color=log(base)))
 
 # CALCULATE DAMAGES  ------------------------------------------------------
 dim(proj$y)
@@ -172,5 +172,4 @@ dam.out <- map_dfr(
 
 dam.out %>% 
   ggplot() + 
-  geom_vline(xintercept=max(pre.yrs))+
-  geom_line(aes(x = year, y = damage))
+  geom_vline(xintercept=max(pre.yrs)) + geom_line(aes(x = year, y = damage))

@@ -156,8 +156,8 @@ gen_mats <- function(NN, TT, IDs, yrs){
   mat <- matrix(NA, nrow=NN, ncol=TT)
   rownames(mat) <- IDs
   colnames(mat) <- yrs
-  y <- g <- temp <- pr <- mat
-  return(list(y=y, g=g, temp=temp, pr=pr))
+  y <- g <- temp <- tcons <- mat
+  return(list(y=y, g=g, temp=temp, tcons=tcons))
 }
 
 check_ID_order <- function(mat, df, yr){
