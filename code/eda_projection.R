@@ -11,7 +11,7 @@ source(paste0(code, "code/0_funcs.R"))
 # SPECIFY PARAMETERS ------------------------------------------------------
 
 type    <- "levels"
-lags    <- 10
+lags    <- 0
 spec    <- "poly2"
 warming <- 4
 
@@ -95,19 +95,12 @@ proj <- post.proj$proj
 plotdf_mats(toPlot, base, proj)
 
 # PROJECTION --------------------------------------------------------------
-b0 <- extract_coefs(m, "temp1")
-b1 <- extract_coefs(m, "temp2")
-
-projected <- project(m, type, base, proj, post.ids, TT, lags)
-base <- projected$base
-proj <- projected$proj
-
-# Get global damages 
-dam.out <- global_damages(proj, base, df.base, yr.ids, yrs)
-
+damages <- get_damages(m, type, base, 
+                       proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
+                       uncertainty=T)
+plot_global_damages(damages)
 
 # plotting ----------------------------------------------------------------
-
 
 plotdf_mats(toPlot, base, proj, plt=T)
 
@@ -142,12 +135,3 @@ pdf.all %>%
   ggplot() + 
   geom_point(aes(x= rTemp, y = rDam, color=log(base))) + 
   scale_color_viridis_c()
-
-# CALCULATE DAMAGES  ------------------------------------------------------
-dim(proj$y)
-length(df.base$pop)
-
-
-dam.out %>% 
-  ggplot() + 
-  geom_vline(xintercept=max(pre.yrs)) + geom_line(aes(x = year, y = damage))

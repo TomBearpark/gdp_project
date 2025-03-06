@@ -210,10 +210,10 @@ format_post_proj_baseline <- function(post.ids, base, proj, warming, TT){
 
 
 # PROJECTION --------------------------------------------------------------
-extract_coefs <- function(m, var){
+extract_coefs <- function(coefs, var){
   
   # Extract coefficients
-  matched_names <- str_subset(names(coef(m)), var)
+  matched_names <- str_subset(names(coefs), var)
 
   # Extract the numeric part using regex and convert to numeric for sorting
   numeric_order <- as.numeric(str_extract(matched_names, "\\d+"))
@@ -273,6 +273,68 @@ global_damages <- function(proj, base, df.base, yr.ids, yrs){
   )  
 }
 
+
+get_damages <- function(m, type, base, 
+                        proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
+                        uncertainty=T){
+  beta <- coef(m)
+  vcov <- vcov(m)
+  
+  # Get central estimate
+  b0 <- extract_coefs(beta, "temp1")
+  b1 <- extract_coefs(beta, "temp2")
+  
+  projected <- project(b0, b1, type, base, proj, post.ids, TT, lags)
+  base <- projected$base
+  proj <- projected$proj
+  
+  central <- global_damages(proj, base, df.base, yr.ids, yrs) %>% 
+    mutate(type = type, lags=lags)
+  
+  # Draw from statistical uncertainty
+  if(uncertainty){
+    draws <- MASS::mvrnorm(n = 500, mu = beta, Sigma = vcov)
+    uncert <- 
+      map_dfr(
+        1:dim(draws)[1], function(kk){
+          print(kk)
+          beta <- draws[kk,]
+          b0 <- extract_coefs(beta, "temp1")
+          b1 <- extract_coefs(beta, "temp2")
+          
+          projected <- project(b0, b1, type, base, proj, post.ids, TT, lags)
+          base <- projected$base
+          proj <- projected$proj
+          
+          # Get global damages 
+          global_damages(proj, base, df.base, yr.ids, yrs) %>% 
+            mutate(draw = kk)
+        }
+      ) %>% 
+      group_by(year) %>%
+      summarize(q025 = quantile(damage, .025), 
+                q05  = quantile(damage, .05),
+                q25  = quantile(damage, .25),
+                q75  = quantile(damage, .75),
+                q95  = quantile(damage, .95),
+                q975 = quantile(damage, .975), 
+                .groups = 'drop') %>% 
+      mutate(type = type, lags=lags)
+  }else{
+    uncert <- tibble()
+  }
+  
+  return(list(central=central, uncert=uncert, base=base, proj=proj))
+}
+
+plot_global_damages <- function(damages, vline=2020){
+  ggplot(data=damages$uncert) + 
+    geom_vline(xintercept=vline, linetype=2)+
+    geom_ribbon(aes(x = year, ymin = q025, ymax = q975), alpha=.1) +
+    geom_ribbon(aes(x = year, ymin = q05, ymax = q95), alpha=.3) +
+    geom_ribbon(aes(x = year, ymin = q25, ymax = q75), alpha=.5) +
+    geom_line(data = damages$central, aes(x = year, y = damage), color='red')
+}
 
 # OUTPUTS -----------------------------------------------------------------
 
