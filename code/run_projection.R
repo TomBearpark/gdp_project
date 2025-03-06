@@ -9,14 +9,16 @@ set.seed(123)
 source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
-type <- "growth"
-lags <- 1
-spec <- "poly2"
+
+type    <- "growth"
+lags    <- 0
+spec    <- "poly2"
 warming <- 2
 
-toPlot <- c("RUS", "CHN", "SDN")
+toPlot  <- c("RUS", "CHN", "SDN")
 
 # LOAD DATA ---------------------------------------------------------------
+
 df.reg <- load_historic_data(dir)
 
 plt.temps <- df.reg %>% 
@@ -43,6 +45,7 @@ me.cum +
   geom_vline(data = plt.temps, aes(xintercept=temp_proj, color=ID), linetype=2)
 
 # GET BASELINES -----------------------------------------------------------
+
 pre.yrs   <- 1990:2019
 proj.yrs  <- 2020:2100
 yrs       <- c(pre.yrs, proj.yrs) 
@@ -129,16 +132,11 @@ pdf.all <- plotdf_mats(df.base$ID, base, proj, plt=F)%>%
   mutate(pc_dam = proj - base, 
          tot_dam = pc_dam * pop) 
 
-pdf.all %>% 
+pdf.all %>% pivot_longer(cols = c(pc_dam, tot_dam), 
+                         names_to = 'type', values_to = 'dam') %>%
   ggplot() + 
-  geom_line(aes(x = year, y = pc_dam, group = ID), alpha=.4)
-
-pdf.all %>% 
-  ggplot() + 
-  geom_line(aes(x = year, y = tot_dam, group = ID), alpha=.4)
-
-pdf.all %>% filter(year == 2100) %>% 
-  arrange(pc_dam)
+  geom_line(aes(x = year, y = dam, group = ID), alpha=.4)+
+  facet_wrap(~type, scales='free')
 
 pdf.all %>% 
   filter(year == 2100) %>% 
@@ -153,7 +151,8 @@ pdf.all %>%
   mutate(rDam = rank(pc_dam), 
          rTemp = rank(temp)) %>%
   ggplot() + 
-  geom_point(aes(x= rTemp, y = rDam, color=log(base)))
+  geom_point(aes(x= rTemp, y = rDam, color=log(base))) + 
+  scale_color_viridis_c()
 
 # CALCULATE DAMAGES  ------------------------------------------------------
 dim(proj$y)
@@ -162,11 +161,11 @@ length(df.base$pop)
 dam.out <- map_dfr(
   yr.ids, 
   function(tt){
-    pc.diff    <- proj$y[,tt]-base$y[,tt]
-    tot.damage <- sum(pc.diff * df.base$pop)
-    glob.gdp   <- sum(proj$y[,tt]*df.base$pop)
+    pc.diff    <- 100*(proj$y[,tt]-base$y[,tt]) / base$y[,tt]
+    tot.damage <- weighted.mean(pc.diff, df.base$pop)
+    # glob.gdp   <- sum(proj$y[,tt]*df.base$pop)
     tibble(year = yrs[tt], 
-           damage=100*tot.damage / glob.gdp)
+           damage = tot.damage)
   }
 )
 
