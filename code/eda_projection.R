@@ -10,10 +10,10 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-type    <- "growth"
-lags    <- 0
+type    <- "levels"
+lags    <- 10
 spec    <- "poly2"
-warming <- 2
+warming <- 4
 
 toPlot  <- c("RUS", "CHN", "SDN")
 
@@ -95,33 +95,19 @@ proj <- post.proj$proj
 plotdf_mats(toPlot, base, proj)
 
 # PROJECTION --------------------------------------------------------------
+b0 <- extract_coefs(m, "temp1")
+b1 <- extract_coefs(m, "temp2")
 
-b0 <- coef(m)[sort(str_subset(names(coef(m)), "temp1"))] %>% as.matrix()
-b1 <- coef(m)[sort(str_subset(names(coef(m)), "temp2"))] %>% as.matrix()
+projected <- project(m, type, base, proj, post.ids, TT, lags)
+base <- projected$base
+proj <- projected$proj
 
-if(type == "levels"){
-  for(tt in 2:TT) {
-    base$tcons[,tt] <- base$temp[,tt]-base$temp[,tt-1]
-    proj$tcons[,tt] <- proj$temp[,tt]-proj$temp[,tt-1]  
-  }
-}else{
-  base$tcons <- base$temp
-  proj$tcons <- proj$temp
-}
+# Get global damages 
+dam.out <- global_damages(proj, base, df.base, yr.ids, yrs)
 
-for(tt in post.ids){
-  lls <- tt-0:lags
-  
-  delta <- (proj$tcons[, lls]   - base$tcons[, lls]) %*% b0 + 
-           (proj$tcons[, lls]^2 - base$tcons[, lls]^2) %*% b1
-    
-  # -- Growth
-  proj$g[,tt] <- base$g[, tt] + delta
-  
-  # -- GDP
-  proj$y[,tt] <- (1 + proj$g[, tt]) * proj$y[,tt-1]
-    
-}
+
+# plotting ----------------------------------------------------------------
+
 
 plotdf_mats(toPlot, base, proj, plt=T)
 
@@ -132,8 +118,11 @@ pdf.all <- plotdf_mats(df.base$ID, base, proj, plt=F)%>%
   mutate(pc_dam = proj - base, 
          tot_dam = pc_dam * pop) 
 
-pdf.all %>% pivot_longer(cols = c(pc_dam, tot_dam), 
-                         names_to = 'type', values_to = 'dam') %>%
+pdf.all %>% 
+  pivot_longer(cols = c(pc_dam, tot_dam), 
+               names_to = 'type', 
+               values_to = 'dam') %>%
+  # filter(ID == "IND") %>% 
   ggplot() + 
   geom_line(aes(x = year, y = dam, group = ID), alpha=.4)+
   facet_wrap(~type, scales='free')
@@ -142,7 +131,7 @@ pdf.all %>%
   filter(year == 2100) %>% 
   pivot_longer(cols = c(pc_dam, tot_dam), 
                names_to = 'type', values_to = 'dam') %>% 
-  ggplot() + geom_point(aes(x = temp, y = dam, color =base))+
+  ggplot() + geom_point(aes(x = temp, y = dam, color = base))+
   # geom_label(aes(x = temp, y = dam, label = ID)) + 
   facet_wrap(~type, scales='free') 
 
@@ -158,16 +147,6 @@ pdf.all %>%
 dim(proj$y)
 length(df.base$pop)
 
-dam.out <- map_dfr(
-  yr.ids, 
-  function(tt){
-    pc.diff    <- 100*(proj$y[,tt]-base$y[,tt]) / base$y[,tt]
-    tot.damage <- weighted.mean(pc.diff, df.base$pop)
-    # glob.gdp   <- sum(proj$y[,tt]*df.base$pop)
-    tibble(year = yrs[tt], 
-           damage = tot.damage)
-  }
-)
 
 dam.out %>% 
   ggplot() + 

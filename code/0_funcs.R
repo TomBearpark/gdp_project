@@ -152,12 +152,13 @@ get_me <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="",
 
 # PREPPING DATA -----------------------------------------------------------
 
-gen_mats <- function(NN, TT, IDs, yrs){
+gen_mats <- function(NN, TT, IDs, yrs, 
+                     var_names = c("y", "g", "temp", "tcons1", "tcons2")) {
   mat <- matrix(NA, nrow=NN, ncol=TT)
   rownames(mat) <- IDs
   colnames(mat) <- yrs
-  y <- g <- temp <- tcons <- mat
-  return(list(y=y, g=g, temp=temp, tcons=tcons))
+  
+  setNames(lapply(var_names, function(x) mat), var_names)
 }
 
 check_ID_order <- function(mat, df, yr){
@@ -206,6 +207,76 @@ format_post_proj_baseline <- function(post.ids, base, proj, warming, TT){
   }
   return(list(base=base, proj=proj))
 }
+
+
+# PROJECTION --------------------------------------------------------------
+extract_coefs <- function(m, var){
+  
+  # Extract coefficients
+  matched_names <- str_subset(names(coef(m)), var)
+
+  # Extract the numeric part using regex and convert to numeric for sorting
+  numeric_order <- as.numeric(str_extract(matched_names, "\\d+"))
+  
+  # Reorder coefficients based on numeric part
+  ordered_names <- matched_names[order(numeric_order)]
+  
+  # Convert to matrix
+  coefs[ordered_names] %>% as.matrix()
+}
+
+project <- function(b0, b1, type, base, proj, post.ids, TT, lags){
+  
+  if(type == "levels"){
+    
+    for(tt in 2:TT) {
+      base$tcons1[,tt] <- base$temp[,tt]-base$temp[,tt-1]
+      proj$tcons1[,tt] <- proj$temp[,tt]-proj$temp[,tt-1]  
+      
+      base$tcons2[,tt] <- base$temp[,tt]^2-base$temp[,tt-1]^2
+      proj$tcons2[,tt] <- proj$temp[,tt]^2-proj$temp[,tt-1]^2  
+    }
+  }else if(type == "growth"){
+    base$tcons1 <- base$temp
+    proj$tcons1 <- proj$temp
+    base$tcons2 <- base$temp^2
+    proj$tcons2 <- proj$temp^2
+  }else{
+    stop("not implemented")
+  }
+  
+  for(tt in post.ids){
+    lls <- tt-0:lags
+    
+    delta <- (proj$tcons1[, lls] - base$tcons1[, lls]) %*% b0 + 
+      (proj$tcons2[, lls] - base$tcons2[, lls]) %*% b1
+    
+    # -- Growth
+    proj$g[, tt] <- base$g[, tt] + delta
+    
+    # -- GDP
+    proj$y[, tt] <- (1 + proj$g[, tt]) * proj$y[, tt-1]
+    
+  }
+  return(list(base=base, proj=proj))
+}
+
+global_damages <- function(proj, base, df.base, yr.ids, yrs){
+  map_dfr(
+    yr.ids, 
+    function(tt){
+      pc.diff    <- 100*(proj$y[,tt]-base$y[,tt]) / base$y[,tt]
+      tot.damage <- weighted.mean(pc.diff, df.base$pop)
+      tibble(year = yrs[tt], 
+             damage = tot.damage)
+    }
+  )  
+}
+
+
+# OUTPUTS -----------------------------------------------------------------
+
+
 
 plot_proj <- function(pdf, vline=2020){
   pdf %>% 
