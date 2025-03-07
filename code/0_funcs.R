@@ -8,7 +8,7 @@
 
 # RUNNING REGRESSIONS -----------------------------------------------------
 
-load_historic_data <- function(dir){
+load_historic_data <- function(dir, lags=10, max.p=2){
   df.in <- read_rds(file.path(dir,"temp_gdp_world_panel.rds")) %>% 
     rename(temp1 = era_mwtemp, pop=SP.POP.TOTL) %>%
     group_by(ID=ISO3) %>% 
@@ -24,9 +24,9 @@ load_historic_data <- function(dir){
     ) %>% 
     ungroup()  %>% 
     filter(year >= 1960 & year <= 2019)  %>% 
-    filter(!is.na(y), !is.na(temp1)) %>% 
+    arrange(ID, year) %>% 
     group_by(ID) %>% 
-    useful::add_lags(vars = c("temp", "dtemp"), lags=10, max.p=2, 
+    useful::add_lags(vars = c("temp", "dtemp"), lags=lags, max.p=max.p, 
                      sort_df = FALSE) %>% 
     select(ID, year, time1, time2, y, g=dy, pop, contains("temp"))
 }
@@ -327,13 +327,13 @@ get_damages <- function(m, type, base,
   return(list(central=central, uncert=uncert, base=base, proj=proj))
 }
 
-plot_global_damages <- function(damages, vline=2020){
-  ggplot(data=damages$uncert) + 
+plot_global_damages <- function(central, uncert, vline=2020){
+  ggplot(data=uncert) + 
     geom_vline(xintercept=vline, linetype=2)+
     geom_ribbon(aes(x = year, ymin = q025, ymax = q975), alpha=.1) +
     geom_ribbon(aes(x = year, ymin = q05, ymax = q95), alpha=.3) +
     geom_ribbon(aes(x = year, ymin = q25, ymax = q75), alpha=.5) +
-    geom_line(data = damages$central, aes(x = year, y = damage), color='red')
+    geom_line(data = central, aes(x = year, y = damage), color='red')
 }
 
 # OUTPUTS -----------------------------------------------------------------
