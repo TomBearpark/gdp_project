@@ -10,9 +10,7 @@ set.seed(123)
 source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
-type     <- "levels"
-lags     <- 0
-spec     <- "poly2"
+
 warming  <- 4
 max_lags <- 10
 
@@ -32,17 +30,17 @@ yr.ids   <- c(pre.ids, post.ids)
 df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags)
 
 # Filter to period we are going to use in plotting / getting baseline. 
-# Interpolate missing values to get balanced panel
+# Should interpolate missing values to get full panel?
 
 df <- df.reg %>% 
   filter(year >= min(pre.yrs)) %>% 
   filter(!is.na(g), !is.na(temp1), !is.na(y))  %>% 
   group_by(ID) %>%
-  add_tally() %>%
+    add_tally() %>%
   ungroup() %>%
   filter(n == max(n))
 
-# Get some averages which are used to define counterfactual
+# Get some averages which are used to define counter-factual
 df.base <- df %>% 
   summarize(g = mean(g, na.rm=T), 
             temp = mean(temp1, na.rm=T), 

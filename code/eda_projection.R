@@ -11,7 +11,7 @@ source(paste0(code, "code/0_funcs.R"))
 # SPECIFY PARAMETERS ------------------------------------------------------
 
 type    <- "levels"
-lags    <- 0
+lags    <- 10
 spec    <- "poly2"
 warming <- 4
 
@@ -98,11 +98,12 @@ plotdf_mats(toPlot, base, proj)
 damages <- get_damages(m, type, base, 
                        proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
                        uncertainty=T)
-plot_global_damages(damages)
+plot_global_damages(damages$central, damages$uncert)
 
 # plotting ----------------------------------------------------------------
-
-plotdf_mats(toPlot, base, proj, plt=T)
+base <- damages$base
+proj <- damages$proj
+plotdf_mats(toPlot, damages$base, damages$proj, plt=T)
 
 pdf.all <- plotdf_mats(df.base$ID, base, proj, plt=F)%>% 
   left_join(df.base) %>% 

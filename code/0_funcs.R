@@ -1,17 +1,31 @@
 # CONTENTS:
+
 ## 1. Running regressions:
   # loading historic data
   # running regression
   # plotting marginal effects
 
-## 2. Prepping data for projection
+## 2. Prepping data for projection:
+  # generating matrices
+  # checking ID order
+  # formatting pre-projection data
+  # formatting post-projection baseline
+
+## 3. Projecting:
+  # extracting coefficients
+  # projecting
+  # getting global damages
+  # plotting global damages
+
+## 4. Outputs:
+  # plotting various stages of the analysis
 
 # RUNNING REGRESSIONS -----------------------------------------------------
 
 load_historic_data <- function(dir, lags=10, max.p=2){
-  df.in <- read_rds(file.path(dir,"temp_gdp_world_panel.rds")) %>% 
-    rename(temp1 = era_mwtemp, pop=SP.POP.TOTL) %>%
-    group_by(ID=ISO3) %>% 
+  df.in <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
+    rename(temp1 = era_mwtemp, pop = SP.POP.TOTL) %>%
+    group_by(ID = ISO3) %>% 
     arrange(ID, year) %>% 
     mutate(y = NY.GDP.PCAP.KD, 
            dy = log(y) - lag(log(y)), 
