@@ -1,5 +1,5 @@
 if(!require(pacman)) install.packages('pacman')
-pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful)
+pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful, readxl)
 theme_set(theme_classic())
 
 dir  <- "~/Library/CloudStorage/Dropbox/gdp-temp/"
@@ -16,15 +16,7 @@ max_lags <- 10
 
 # GET BASELINES -----------------------------------------------------------
 
-pre.yrs   <- 1990:2019
-proj.yrs  <- 2020:2100
-yrs       <- c(pre.yrs, proj.yrs) 
-
-TT        <- length(yrs)
-
-pre.ids  <- 1:length(pre.yrs)
-post.ids <- (length(pre.yrs)+1):length(yrs)
-yr.ids   <- c(pre.ids, post.ids) 
+yrs <- get_years()
 
 # Load regression data 
 df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags)
@@ -33,7 +25,7 @@ df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags)
 # Should interpolate missing values to get full panel?
 
 df <- df.reg %>% 
-  filter(year >= min(pre.yrs)) %>% 
+  filter(year >= min(yrs$pre)) %>% 
   filter(!is.na(g), !is.na(temp1), !is.na(y))  %>% 
   group_by(ID) %>%
     add_tally() %>%
@@ -53,16 +45,16 @@ NN <- length(unique(df$ID))
 print(NN)
 
 # Create matrices to store data
-base <- gen_mats(NN, TT, df.base$ID, yrs)
-proj <- gen_mats(NN, TT, df.base$ID, yrs)
+base <- gen_mats(NN, yrs, df.base$ID)
+proj <- gen_mats(NN, yrs, df.base$ID)
 
 ## Format pre-projection data -----------------
-pre.proj <- format_pre_proj(pre.ids, pre.yrs, df, base, proj)
+pre.proj <- format_pre_proj(yrs, df, base, proj)
 base <- pre.proj$base
 proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
-post.proj <- format_post_proj_baseline(post.ids, base, proj, warming, TT)
+post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
 proj <- post.proj$proj
 
@@ -82,9 +74,15 @@ pdf <- pmap(
     ggsave(paste0(dir.out, type, "_", lags, "_me_sep",".pdf"))
     
     # Project damages
-    dam.df <- get_damages(m, type, base, 
-                proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
-                uncertainty=T)
+    dam.df <- get_damages(m=m, 
+                          type=type, 
+                          base=base, 
+                          proj=proj,
+                          yrs=yrs, 
+                          lags=lags, 
+                          df.pop=df.pop, 
+                          uncertainty=T)
+    
     plot_global_damages(dam.df$central, dam.df$uncert) 
     ggsave(paste0(dir.out, type, "_", lags, "_damages",".pdf"))
     dam.df

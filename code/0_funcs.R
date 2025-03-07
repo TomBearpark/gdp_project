@@ -166,28 +166,54 @@ get_me <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="",
 
 # PREPPING DATA -----------------------------------------------------------
 
-gen_mats <- function(NN, TT, IDs, yrs, 
+get_years <- function(base_start_year = 1990,
+                      end_data_year = 2019, 
+                      start_proj_year = 2020,
+                      end_proj_year = 2100){
+  
+  pre.yrs   <- base_start_year:end_data_year
+  proj.yrs  <- start_proj_year:end_proj_year
+  yrs       <- c(pre.yrs, proj.yrs)
+  
+  TT        <- length(yrs)
+  
+  pre.ids  <- 1:length(pre.yrs)
+  post.ids <- (length(pre.yrs)+1):length(yrs)
+  yr.ids   <- c(pre.ids, post.ids) 
+  
+  return(list(
+    pre = pre.yrs, 
+    proj = proj.yrs, 
+    yrs = yrs, 
+    TT = TT, 
+    pre.ids = pre.ids, 
+    proj.ids = post.ids, 
+    ids = yr.ids
+  ))
+}
+
+gen_mats <- function(NN, yrs, IDs, 
                      var_names = c("y", "g", "temp", "tcons1", "tcons2")) {
-  mat <- matrix(NA, nrow=NN, ncol=TT)
+  mat <- matrix(NA, nrow=NN, ncol=yrs$TT)
   rownames(mat) <- IDs
-  colnames(mat) <- yrs
+  colnames(mat) <- yrs$yrs
   
   setNames(lapply(var_names, function(x) mat), var_names)
 }
 
-check_ID_order <- function(mat, df, yr){
-  stopifnot(rownames(mat)==df %>% 
-              filter(year == yr) %>% arrange(ID) %>% 
-              pull(ID))
+check_ID_order <- function(mat, df, yr=2000){
+  if('year' %in% names(df)) df <- df %>% filter(year == yr)
+  
+  stopifnot(rownames(mat)==df %>% arrange(ID) %>% pull(ID))
 }
 
-format_pre_proj <- function(pre.ids, pre.yrs, df, base, proj){
+format_pre_proj <- function(yrs, df, base, proj){
   
-  check_ID_order(base$temp, df, pre.yrs[1])
+  check_ID_order(base$temp, df, yrs$pre[1])
   
-  for(tt in pre.ids){
+  for(tt in yrs$pre.ids){
     
-    yr <- pre.yrs[tt]
+    yr <- yrs$pre[tt]
     
     # -- Temperature
     base$temp[, tt] <- proj$temp[, tt] <- df %>% 
@@ -204,13 +230,72 @@ format_pre_proj <- function(pre.ids, pre.yrs, df, base, proj){
   return(list(base=base, proj=proj))
 }
 
-format_post_proj_baseline <- function(post.ids, base, proj, warming, TT){
+load_warming <- function(dir, 
+                         scen = "median"
+){
+  read_excel(paste0(dir, 
+                    '/data/projection/', 
+                    'cmip6-x0.25_timeseries_tas', 
+                    '_timeseries_annual_2015-2100_median,p10,', 
+                    'p90_ssp585_ensemble_all_mean.xlsx'), 
+             sheet = scen) %>% 
+    select(-name) %>% 
+    pivot_longer(cols = -c(code), values_to = 'temp') %>% 
+    mutate(year = str_remove(name, "-07") %>% as.numeric()) %>% 
+    select(-name) %>%
+    arrange(code, year) %>% 
+    rename(ID=code) %>% 
+    filter(year >= 2019) %>% 
+    group_by(ID) %>% 
+    mutate(warming = temp-first(temp)) %>% 
+    ungroup()
+}
+
+load_gdp_ssp <- function(dir, scen){
+  stop("not implemented")
+}
+
+load_pop_ssp <- function(dir, scen){
+  read_excel(paste0(dir, 
+                    '/data/projection/', 
+                    'pop-x1_timeseries_popcount_timeseries_annual_2010-2100', 
+                    '_mean_ssp585_gpw-v4_rev11_mean.xlsx')) %>% 
+    select(-name) %>% 
+    pivot_longer(cols = -c(code), values_to = 'pop') %>% 
+    mutate(year = str_remove(name, "-07") %>% as.numeric()) %>% 
+    select(-name) %>%
+    arrange(code, year) %>% 
+    rename(ID=code) %>% 
+    filter(year >= 2019) %>% 
+    group_by(ID) %>%
+      complete(year = full_seq(year, 1)) %>%  # Create a complete sequence of years
+      mutate(pop = approx(year, pop, year)$y) %>%  # Linear interpolation %>% 
+    ungroup()
+}
+
+# Warming here is either a scalar, for the total warming over the full projection
+# or a dataframe, with annual warming for each year in the projection
+format_post_proj_baseline <- function(yrs, base, proj, warming){
   
-  for(tt in post.ids){
+  if(is.data.frame(warming)) {
+    check_ID_order(base$temp, warming, yrs$proj[1])
+  }else{
+    stopifnot(is.numeric(warming))
+  }
+  
+  for(tt in yrs$proj.ids){
+    
+    yr <- yrs$proj[tt]
     
     # -- Temperature
     base$temp[,tt] <- df.base$temp  
-    proj$temp[,tt] <- df.base$temp + warming / TT * (tt-min(post.ids))
+    
+    if(is.numeric(warming)){
+      proj$temp[,tt] <- df.base$temp + warming / yrs$TT * (tt-min(yrs$proj.ids))  
+    }else if(is.data.frame(warming)){
+      proj$temp[,tt] <- df.base$temp + warming %>% 
+        filter(year == yrs$yrs[tt]) %>% pull(warming)
+    }
     
     # -- Growth
     base$g[,tt] <- df.base$g
@@ -239,11 +324,11 @@ extract_coefs <- function(coefs, var){
   coefs[ordered_names] %>% as.matrix()
 }
 
-project <- function(b0, b1, type, base, proj, post.ids, TT, lags){
+project <- function(b0, b1, type, base, proj, yrs, lags){
   
   if(type == "levels"){
     
-    for(tt in 2:TT) {
+    for(tt in 2:max(yrs$proj.ids)) {
       base$tcons1[,tt] <- base$temp[,tt]-base$temp[,tt-1]
       proj$tcons1[,tt] <- proj$temp[,tt]-proj$temp[,tt-1]  
       
@@ -259,7 +344,7 @@ project <- function(b0, b1, type, base, proj, post.ids, TT, lags){
     stop("not implemented")
   }
   
-  for(tt in post.ids){
+  for(tt in yrs$proj.ids){
     lls <- tt-0:lags
     
     delta <- (proj$tcons1[, lls] - base$tcons1[, lls]) %*% b0 + 
@@ -275,21 +360,34 @@ project <- function(b0, b1, type, base, proj, post.ids, TT, lags){
   return(list(base=base, proj=proj))
 }
 
-global_damages <- function(proj, base, df.base, yr.ids, yrs){
+global_damages <- function(proj, 
+                           base, 
+                           df.base, 
+                           yrs, 
+                           add_global_gdp=FALSE){
   map_dfr(
-    yr.ids, 
+    1:yrs$TT, 
     function(tt){
       pc.diff    <- 100*(proj$y[,tt]-base$y[,tt]) / base$y[,tt]
       tot.damage <- weighted.mean(pc.diff, df.base$pop)
-      tibble(year = yrs[tt], 
-             damage = tot.damage)
+      out.df <- tibble(year = yrs$yrs[tt], damage = tot.damage)
+      if(add_global_gdp){
+        out.df <- out.df %>% 
+          mutate(global_gdp = sum(base$y[,tt] * df.base$pop))
+      }
+      out.df
     }
   )  
 }
 
 
-get_damages <- function(m, type, base, 
-                        proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
+get_damages <- function(m, 
+                        type, 
+                        base, 
+                        proj, 
+                        yrs,
+                        lags, 
+                        df.pop, 
                         uncertainty=T){
   beta <- coef(m)
   vcov <- vcov(m)
@@ -298,11 +396,19 @@ get_damages <- function(m, type, base,
   b0 <- extract_coefs(beta, "temp1")
   b1 <- extract_coefs(beta, "temp2")
   
-  projected <- project(b0, b1, type, base, proj, post.ids, TT, lags)
+  projected <- project(b0=b0, 
+                       b1=b1, 
+                       type=type, 
+                       base=base, 
+                       proj=proj, 
+                       yrs=yrs, 
+                       lags=lags)
+  
   base <- projected$base
   proj <- projected$proj
   
-  central <- global_damages(proj, base, df.base, yr.ids, yrs) %>% 
+  central <- global_damages(proj, base, df.pop, yrs, 
+                            add_global_gdp = TRUE) %>% 
     mutate(type = type, lags=lags)
   
   # Draw from statistical uncertainty
@@ -316,12 +422,18 @@ get_damages <- function(m, type, base,
           b0 <- extract_coefs(beta, "temp1")
           b1 <- extract_coefs(beta, "temp2")
           
-          projected <- project(b0, b1, type, base, proj, post.ids, TT, lags)
+          projected <- project(b0=b0, 
+                               b1=b1, 
+                               type=type, 
+                               base=base, 
+                               proj=proj, 
+                               yrs=yrs, 
+                               lags=lags)
           base <- projected$base
           proj <- projected$proj
           
           # Get global damages 
-          global_damages(proj, base, df.base, yr.ids, yrs) %>% 
+          global_damages(proj, base, df.pop, yrs) %>% 
             mutate(draw = kk)
         }
       ) %>% 

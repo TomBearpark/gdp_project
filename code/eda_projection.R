@@ -1,8 +1,9 @@
 if(!require(pacman)) install.packages('pacman')
-pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful)
+pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful, 
+               readxl)
 theme_set(theme_classic())
 
-dir  <- "~/Library/CloudStorage/Dropbox/gdp-temp/replication/"
+dir  <- "~/Library/CloudStorage/Dropbox/gdp-temp/"
 code <- "~/Documents/GitHub/gdp_project/"
 
 set.seed(123)
@@ -10,16 +11,17 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-type    <- "levels"
-lags    <- 10
+type    <- "growth"
+lags    <- 0
 spec    <- "poly2"
 warming <- 4
+max_lags <- 15
 
-toPlot  <- c("RUS", "CHN", "SDN")
+toPlot  <- c("RUS", "USA", "SDN")
 
 # LOAD DATA ---------------------------------------------------------------
 
-df.reg <- load_historic_data(dir)
+df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags)
 
 plt.temps <- df.reg %>% 
   filter(ID %in% toPlot) %>% 
@@ -45,20 +47,11 @@ me.cum +
   geom_vline(data = plt.temps, aes(xintercept=temp_proj, color=ID), linetype=2)
 
 # GET BASELINES -----------------------------------------------------------
-
-pre.yrs   <- 1990:2019
-proj.yrs  <- 2020:2100
-yrs       <- c(pre.yrs, proj.yrs) 
-
-TT        <- length(yrs)
-
-pre.ids  <- 1:length(pre.yrs)
-post.ids <- (length(pre.yrs)+1):length(yrs)
-yr.ids   <- c(pre.ids, post.ids) 
+yrs <- get_years()
 
 # Filter to period we are going to use in plotting / getting baseline
 df <- df.reg %>% 
-  filter(year >= min(pre.yrs))  %>% 
+  filter(year >= min(yrs$pre))  %>% 
   filter(!is.na(g), !is.na(temp1), !is.na(y)) %>% 
   group_by(ID) %>%
     add_tally() %>%
@@ -74,31 +67,59 @@ df.base <- df %>%
   select(ID, temp, g, pop) %>% 
   mutate(g = if_else(g > 0.03, 0.03, g))
 
+# Load warming data
+df.warming <- load_warming(dir) %>% 
+  filter(ID %in% df$ID)
+
+# Plot the warming 
+total.warming <- df.warming %>% filter(year %in% c(2019, 2100)) 
+total.warming %>% filter(year == 2100) %>% ggplot() + geom_histogram(aes(x = warming))
+
+left_join(df %>% filter(year == 2019), total.warming) %>% 
+  ggplot() + geom_point(aes(x = temp1, y = temp)) + geom_abline()
+
 NN <- length(unique(df$ID))
 print(NN)
 
 # Create matrices to store data
-base <- gen_mats(NN, TT, df.base$ID, yrs)
-proj <- gen_mats(NN, TT, df.base$ID, yrs)
+base <- gen_mats(NN, yrs, df.base$ID)
+proj <- gen_mats(NN, yrs, df.base$ID)
 
 ## Format pre-projection data -----------------
-pre.proj <- format_pre_proj(pre.ids, pre.yrs, df, base, proj)
+pre.proj <- format_pre_proj(yrs, df, base, proj)
 base <- pre.proj$base
 proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
-post.proj <- format_post_proj_baseline(post.ids, base, proj, warming, TT)
+post.proj <- format_post_proj_baseline(yrs, base, proj, df.warming)
 base <- post.proj$base
 proj <- post.proj$proj
 
 ## Sense check the data 
-plotdf_mats(toPlot, base, proj)
+plotdf_mats("USA", base, proj)
 
 # PROJECTION --------------------------------------------------------------
-damages <- get_damages(m, type, base, 
-                       proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
+df.pop <- df.base %>% select(ID, pop)
+
+damages <- get_damages(m=m, 
+                       type=type, 
+                       base=base, 
+                       proj=proj,
+                       yrs=yrs, 
+                       lags=lags, 
+                       df.pop=df.pop, 
                        uncertainty=T)
+
+plotdf_mats("USA", damages$base, damages$proj)
+
 plot_global_damages(damages$central, damages$uncert)
+
+# SCC
+w_mean   <- damages$central %>% filter(year == 2100) %>% pull(damage)  
+glob_gdp <- damages$central %>% filter(year == 2100) %>% pull(global_gdp)
+
+-(glob_gdp / 1e6) * (1-exp( w_mean /100 )) / 873 * 0.001 * 0.98^40 / (1 - 0.98)
+
 
 # plotting ----------------------------------------------------------------
 base <- damages$base
