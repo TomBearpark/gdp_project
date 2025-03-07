@@ -11,7 +11,6 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-warming  <- 4
 max_lags <- 10
 
 # GET BASELINES -----------------------------------------------------------
@@ -54,6 +53,7 @@ base <- pre.proj$base
 proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
+warming <- load_warming(dir, "median") %>% filter(ID %in% df$ID)
 post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
 proj <- post.proj$proj
@@ -65,7 +65,8 @@ opts <- expand_grid(lags=0:max_lags, type=c("levels", "growth"))
 pdf <- pmap(
   opts,
   function(lags, type){
-    m  <- run_reg(df.reg, type=type, lags=lags, spec=spec)
+    
+    m  <- run_reg(df.reg, type=type, lags=lags)
     
     # Save ME info
     get_me_cum(m, lags, type=type)

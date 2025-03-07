@@ -63,7 +63,7 @@ df.pop <- df.base %>% select(ID, pop)
 m  <- run_reg(df.reg, type=type, lags=lags)
 
 # Uniform warming 
-pdf <- map(
+pdf.uniform <- map(
   set_names(warming_list),
   function(ww){
     df.warming <- tibble(ID = unique(df$ID), warming = ww)
@@ -84,28 +84,26 @@ pdf <- map(
   }
 )
 
-map_dfr(seq_along(pdf), 
+pdf <- map_dfr(seq_along(pdf), 
         function(ww){
           pdf[[ww]] %>% pluck("central") %>% mutate(warming=ww)
-        }) %>% 
+        }) 
+pdf %>% 
   ggplot() + 
   geom_line(aes(x = year, y= damage, color = warming, group=warming)) + 
   scale_color_viridis_c() 
 
-map_dfr(seq_along(pdf), 
-        function(ww){
-          pdf[[ww]] %>% pluck("central") %>% mutate(warming=warming_list[[ww]])
-        })  %>% 
+pdf %>% 
   filter(year == 2100) %>% 
   ggplot() + 
   geom_point(aes(x = warming, y = damage))
 
 # USA only 
 plot.ids <- c("USA", "RUS", "SDN")
-map_dfr(seq_along(pdf), 
+map_dfr(seq_along(pdf.uniform), 
         function(ww){
-          base <- pdf[[ww]]$base
-          proj <- pdf[[ww]]$proj
+          base <- pdf.uniform[[ww]]$base
+          proj <- pdf.uniform[[ww]]$proj
           plotdf_mats(plot.ids, base, proj, F) %>% 
             mutate(warming = warming_list[[ww]])
         })  %>% 
@@ -124,12 +122,17 @@ pdf.rcp <- map_dfr(
     
     df.warming <- load_warming(dir, scen=scen) %>% filter(ID %in% df$ID)
     
-    post.proj <- format_post_proj_baseline(post.ids, proj.yrs, base, proj, df.warming, TT)
+    post.proj <- format_post_proj_baseline(yrs, base, proj, df.warming)
     base <- post.proj$base
     proj <- post.proj$proj
-    get_damages(m, type, base, 
-                proj, post.ids, TT, lags, df.base, yr.ids, yrs, 
-                uncertainty=F) %>% 
+    get_damages(m=m, 
+                type=type, 
+                base=base, 
+                proj=proj,
+                yrs=yrs, 
+                lags=lags, 
+                df.pop=df.pop, 
+                uncertainty=F) %>%
       pluck("central") %>%
       mutate(scen=scen)
   }

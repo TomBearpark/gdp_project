@@ -464,8 +464,6 @@ plot_global_damages <- function(central, uncert, vline=2020){
 
 # OUTPUTS -----------------------------------------------------------------
 
-
-
 plot_proj <- function(pdf, vline=2020){
   pdf %>% 
     ggplot() + 
