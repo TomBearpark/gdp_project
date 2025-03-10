@@ -27,7 +27,7 @@ df <- df.reg %>%
   filter(year >= min(yrs$pre)) %>% 
   filter(!is.na(g), !is.na(temp1), !is.na(y))  %>% 
   group_by(ID) %>%
-    add_tally() %>%
+  add_tally() %>%
   ungroup() %>%
   filter(n == max(n))
 
@@ -54,29 +54,27 @@ proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
 warming <- load_warming(dir, "median") %>% filter(ID %in% df$ID)
-warming <- 4
+# warming <- 4
 post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
 proj <- post.proj$proj
 
 # PROJECTION --------------------------------------------------------------
 
-opts <- expand_grid(lags=0:max_lags, type=c("levels", "growth"))
+opts <- expand_grid(lags=0:max_lags, type=c("levels", "growth"), 
+                    FE = c("ID+time1", 
+                           "ID+time1+ID[time1]",
+                           "ID+time1+ID[time1]+ID[time2]"))
 df.pop <- df.base %>% select(ID, pop)
 
 pdf <- pmap(
   opts,
-  function(lags, type){
+  function(lags, type, FE){
     
-    m  <- run_reg(df.reg, type=type, lags=lags)
+    m  <- run_reg(df.reg, type=type, lags=lags, 
+                  FE = FE)
     
-    # Save ME info
-    get_me_cum(m, lags,name='temp', type=type)
-    ggsave(paste0(dir.out, type, "_", lags, "_me_cum", ".pdf"))
-    get_me(m, name='temp', lags=lags, type=type)
-    ggsave(paste0(dir.out, type, "_", lags, "_me_sep",".pdf"))
-    
-    # Project damages
+    print(m)
     dam.df <- get_damages(m=m, 
                           type=type, 
                           base=base, 
@@ -84,29 +82,17 @@ pdf <- pmap(
                           yrs=yrs, 
                           lags=lags, 
                           df.pop=df.pop, 
-                          uncertainty=T)
-    
-    plot_global_damages(dam.df$central, dam.df$uncert) 
-    ggsave(paste0(dir.out, type, "_", lags, "_damages",".pdf"))
-    dam.df
+                          uncertainty=F)
+    dam.df$central %>% 
+      mutate(type=type, lags=lags, FE=FE) %>% 
+      select(type, lags, everything())
   }
 )
 
-central <- map_dfr(seq_along(pdf), function(ii) pdf[[ii]]$central) %>% 
-  mutate(lags = as.factor(lags))
-
-uncert <- map_dfr(seq_along(pdf), function(ii) pdf[[ii]]$uncert) %>% 
-  mutate(lags = as.factor(lags))
-
-plot_global_damages(central, uncert) + 
-  facet_wrap(~type+lags, nrow=2, scales='free')
-
-ggplot() + 
-  geom_hline(yintercept = 0, linetype="dashed", color = "black") +
-  geom_point(aes(x = lags, y = damage, color = type), 
-             data=central %>% filter(year == 2100), 
-             position=position_dodge(width = .5)) +
-  # geom_errorbar(aes(x = lags, ymin = q05, ymax=q95, color = type),
-  #               position=position_dodge(width = .5), width=.5, 
-  #            data=uncert %>% filter(year == 2100)) +
-  ylab("Damages, %GDP 2100") + xlab("No. lags in model")
+bind_rows(pdf) %>% 
+  filter(year == 2100) %>% 
+  ggplot() + 
+  geom_point(aes(x = lags, y = damage, color = type)) +
+  facet_wrap(~FE) +
+  scale_x_continuous(breaks = 0:max_lags) +
+  theme_bw()

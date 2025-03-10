@@ -40,14 +40,15 @@ load_historic_data <- function(dir, lags=10, max.p=2){
     filter(year >= 1960 & year <= 2019)  %>% 
     arrange(ID, year) %>% 
     group_by(ID) %>% 
-    useful::add_lags(vars = c("temp", "dtemp"), lags=lags, max.p=max.p, 
+    useful::add_lags(vars = c("temp", "dtemp"), 
+                     lags=lags, max.p=max.p, 
                      sort_df = FALSE) %>% 
     select(ID, year, time1, time2, y, g=dy, pop, contains("temp"))
 }
 
-get_var <- function(type){
-  if(type=="levels") var <- "dtemp"
-  else if(type == "growth") var <- "temp"
+get_var <- function(type, name="temp"){
+  if(type=="levels") var <- paste0("d", name)
+  else if(type == "growth") var <- name
   else stop("not implemented")
   return(var)
 }
@@ -55,21 +56,34 @@ get_var <- function(type){
 run_reg <- function(df, 
                     type="levels", 
                     lags=1, 
+                    global=FALSE, 
+                    cluster="ID", 
                     spec="poly2", 
                     FE = "ID + time1 + ID[time1]"){
   
   var <- get_var(type)
   poly_order <- as.numeric(str_extract(spec, "[0-9]"))
+  
+  
+  if(global){
+    control <- get_var(type, 'gtemp')
+    if(lags==0) control <- paste0("l0_", control)
+    
+    poly_control <- 1
+  }else{
+    control <- poly_control <- NULL
+  }
   if(lags==0) var <- paste0("l0_", var)
   
   ff <- useful::build_formula_poly(
-    yvar = "g", treat = var, poly_treat = poly_order, control=NULL, 
+    yvar = "g", treat = var, poly_treat = poly_order, control=control, 
+    poly_control = poly_control, 
     leads = 0, lags=lags , FE=FE
   )
   feols(
     ff, 
     data = df, 
-    cluster = "ID"
+    cluster = cluster
   )
 }
 
@@ -88,10 +102,14 @@ plot_me <- function(pdf, type, lags=NULL){
   p
 }
 
-get_me_sep <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="", 
-                   plot=T){
+get_me_sep <- function(m, lags, 
+                       name="temp", 
+                       type="growth", 
+                       xrange=seq(0, 30, by = 5), 
+                       id="", 
+                       plot=T){
   
-  var <- get_var(type)
+  var <- get_var(type=type, name=name)
   
   pdf <- map_dfr(
     0:lags, 
@@ -117,10 +135,11 @@ get_me_sep <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="",
   }
 }
 
-get_me_cum <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="", 
+get_me_cum <- function(m, lags, name="temp", 
+                       type="growth", xrange=seq(0, 30, by = 5), id="", 
                    plot=T){
   
-  var <- get_var(type)
+  var <- get_var(type, name=name)
   
   pdf <-
       map_dfr(
@@ -147,12 +166,13 @@ get_me_cum <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="",
   }
 }
 
-get_me <- function(m, lags, type="growth", xrange=seq(0, 30, by = 5), id="", 
+get_me <- function(m, lags, name='temp', 
+                   type="growth", xrange=seq(0, 30, by = 5), id="", 
                        plot=T){
    
   
-  pdf.sep <- get_me_sep(m, lags, type, xrange, id, plot=FALSE) 
-  pdf.cum <- get_me_cum(m, lags, type, xrange, id, plot=FALSE) %>% 
+  pdf.sep <- get_me_sep(m, lags, name, type, xrange, id, plot=FALSE) 
+  pdf.cum <- get_me_cum(m, lags, name, type, xrange, id, plot=FALSE) %>% 
     select(-lag)
   
   if(plot){

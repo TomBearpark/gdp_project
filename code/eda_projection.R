@@ -11,17 +11,32 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-type    <- "growth"
-lags    <- 0
-spec    <- "poly2"
-warming <- 4
+type     <- "growth"
+lags     <- 0
+spec     <- "poly2"
+warming  <- 4
 max_lags <- 15
 
 toPlot  <- c("RUS", "USA", "SDN")
 
+df.glob <- 
+  read_dta(
+    file.path(dir, 
+              'replication/bk_micc_replication/data/micc_data.dta')
+    ) %>% 
+  select(year, gtemp1 = gtmp_noaa_aw)  %>% 
+  mutate(id = "global", gtemp2 = gtemp1^2, 
+         dgtemp1 = lag(gtemp1), 
+         dgtemp2 = lag(gtemp2)) %>% 
+  add_lags(vars = c("gtemp","dgtemp"),  sort_df = F, max.p = 2, 
+           lags=max_lags) %>% 
+  select(-id)
+  
+
 # LOAD DATA ---------------------------------------------------------------
 
-df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags)
+df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags) %>% 
+  left_join(df.glob)
 
 plt.temps <- df.reg %>% 
   filter(ID %in% toPlot) %>% 
@@ -36,9 +51,28 @@ df.reg %>%
   geom_vline(data = plt.temps, aes(xintercept=temp_proj, color=ID), linetype=2)
 
 # RUN REGRESSION ----------------------------------------------------------
+type <- "levels"
+lags <- 0
+m1  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = F, 
+              FE = "ID+time1+ID[time1]+ID[time2]")
 
-m  <- run_reg(df.reg, type=type, lags=lags, spec=spec)
+m2  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = T, 
+              FE = "ID+ID[time1]+ID[time2]", cluster = c("ID", "time1"))
+
+m3 <- feols(g ~ l0_dtemp1 + l0_dtemp2 + l0_dgtemp1 + l0_gtemp1:l0_temp1 | 
+        ID + ID[year]+ID[time2], df.reg)
+
+etable(m1, m2, m3)
+coefplot(m2, keep="gtemp")
+
+
+
+m
+coefplot(m, keep="gtemp")
+
 get_me_sep(m, lags, type=type)
+get_me_sep(m, lags, type=type, name='gtemp')
+
 get_me(m, lags, type=type)
 
 me.cum <- get_me_cum(m, lags, type=type)
