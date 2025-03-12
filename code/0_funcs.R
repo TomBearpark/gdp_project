@@ -173,7 +173,7 @@ get_me <- function(m, lags, name='temp',
    
   
   pdf.sep <- get_me_sep(m, lags, name, type, xrange, id, plot=FALSE) 
-  pdf.cum <- get_me_cum(m, lags, name, type, xrange, id, plot=FALSE) %>% 
+  pdf.cum <- get_me_cumulative(m, lags, name, type, xrange, id, plot=FALSE) %>% 
     select(-lag)
   
   if(plot){
