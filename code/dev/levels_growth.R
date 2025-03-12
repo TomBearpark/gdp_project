@@ -11,7 +11,7 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-max_lags <- 10
+max_lags <- 15
 
 # GET BASELINES -----------------------------------------------------------
 
@@ -65,7 +65,7 @@ opts <- expand_grid(lags=0:max_lags, type=c("levels", "growth"),
                     FE = c("ID+time1", 
                            "ID+time1+ID[time1]",
                            "ID+time1+ID[time1]+ID[time2]"))
-df.pop <- df.base %>% select(ID, pop)
+df.pop <- df.base %>% select(ID, pop) %>% arrange(ID)
 
 pdf <- pmap(
   opts,
@@ -73,6 +73,9 @@ pdf <- pmap(
     
     m  <- run_reg(df.reg, type=type, lags=lags, 
                   FE = FE)
+    b0 <- sum(coef(m)[str_detect(names(coef(m)), "temp1")])
+    b1 <- sum(coef(m)[str_detect(names(coef(m)), "temp2")])
+    
     
     print(m)
     dam.df <- get_damages(m=m, 
@@ -84,7 +87,7 @@ pdf <- pmap(
                           df.pop=df.pop, 
                           uncertainty=F)
     dam.df$central %>% 
-      mutate(type=type, lags=lags, FE=FE) %>% 
+      mutate(type=type, lags=lags, FE=FE, peak=-b0/(2*b1)) %>% 
       select(type, lags, everything())
   }
 )
@@ -96,3 +99,10 @@ bind_rows(pdf) %>%
   facet_wrap(~FE) +
   scale_x_continuous(breaks = 0:max_lags) +
   theme_bw()
+
+bind_rows(pdf) %>% 
+  filter(lags <10, year == 1990) %>% 
+  select(lags, type, peak, FE) %>% distinct() %>% 
+  ggplot() + geom_point(aes(x = lags, y = peak, color = type)) + 
+  scale_x_continuous(breaks = 0:max_lags) +
+  theme_bw()+facet_wrap(~FE) +ggtitle("Optimal temperature")

@@ -61,7 +61,7 @@ proj <- pre.proj$proj
 
 df.pop <- df.base %>% select(ID, pop)
 m  <- run_reg(df.reg, type=type, lags=lags)
-
+warming_list <- 0:20
 # Uniform warming 
 pdf.uniform <- map(
   set_names(warming_list),
@@ -84,9 +84,9 @@ pdf.uniform <- map(
   }
 )
 
-pdf <- map_dfr(seq_along(pdf), 
+pdf <- map_dfr(seq_along(pdf.uniform), 
         function(ww){
-          pdf[[ww]] %>% pluck("central") %>% mutate(warming=ww)
+          pdf.uniform[[ww]] %>% pluck("central") %>% mutate(warming=ww)
         }) 
 pdf %>% 
   ggplot() + 

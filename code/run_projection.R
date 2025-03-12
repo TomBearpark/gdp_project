@@ -71,7 +71,7 @@ pdf <- pmap(
     m  <- run_reg(df.reg, type=type, lags=lags)
     
     # Save ME info
-    get_me_cum(m, lags,name='temp', type=type)
+    get_me_cumulative(m, lags,name='temp', type=type)
     ggsave(paste0(dir.out, type, "_", lags, "_me_cum", ".pdf"))
     get_me(m, name='temp', lags=lags, type=type)
     ggsave(paste0(dir.out, type, "_", lags, "_me_sep",".pdf"))

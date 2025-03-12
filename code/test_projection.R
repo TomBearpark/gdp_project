@@ -19,9 +19,24 @@ max_lags <- 15
 
 toPlot  <- c("RUS", "USA", "SDN")
 
+df.glob <- 
+  read_dta(
+    file.path(dir, 
+              'replication/bk_micc_replication/data/micc_data.dta')
+    ) %>% 
+  select(year, gtemp1 = gtmp_noaa_aw)  %>% 
+  mutate(id = "global", gtemp2 = gtemp1^2, 
+         dgtemp1 = lag(gtemp1), 
+         dgtemp2 = lag(gtemp2)) %>% 
+  add_lags(vars = c("gtemp","dgtemp"),  sort_df = F, max.p = 2, 
+           lags=max_lags) %>% 
+  select(-id)
+  
+
 # LOAD DATA ---------------------------------------------------------------
 
-df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags) 
+df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags) %>% 
+  left_join(df.glob)
 
 plt.temps <- df.reg %>% 
   filter(ID %in% toPlot) %>% 
@@ -38,13 +53,48 @@ df.reg %>%
 # RUN REGRESSION ----------------------------------------------------------
 type <- "levels"
 lags <- 10
-m  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = F, 
+m1  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = F, 
               FE = "ID+time1+ID[time1]")
 
-coefplot(m, keep="temp")
+m2  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = T, 
+              FE = "ID+ID[time1]", cluster = c("ID", "time1"))
+etable(m1, m2)
+coefplot(m2, keep="gtemp")
+
+m3 <- feols(g ~ 
+              l(l0_dtemp1, 0:10) + 
+              l(l0_dtemp2, 0:10) +
+              l(l0_dgtemp1, 0:10)
+            
+            |
+              
+        ID + ID[time1]+ID[time2], 
+        df.reg, 
+        panel.id=c("ID", "year"))
+
+tidy(m3) %>% 
+  filter(str_detect(term, "gtemp")) %>% 
+  mutate(cum = cumsum(estimate), lag=0:10) %>% 
+  ggplot() + 
+  geom_point(aes(x = lag, y = cum)) + 
+  geom_hline(yintercept = 0)
+
+m3
+etable(m1, m2, m3)
+coefplot(m2, keep="gtemp")
+
+
+
+m
+coefplot(m, keep="gtemp")
+
+get_me_sep(m, lags, type=type)
+get_me_sep(m, lags, type=type, name='gtemp')
+
 get_me(m, lags, type=type)
 
-get_me_cumulative(m, lags, type=type) + 
+me.cum <- get_me_cum(m, lags, type=type)
+me.cum + 
   geom_vline(data = plt.temps, aes(xintercept=temp, color=ID))+
   geom_vline(data = plt.temps, aes(xintercept=temp_proj, color=ID), linetype=2)
 
@@ -113,7 +163,15 @@ damages <- get_damages(m=m,
                        uncertainty=T)
 
 plotdf_mats("USA", damages$base, damages$proj)
+
 plot_global_damages(damages$central, damages$uncert)
+
+# SCC
+w_mean   <- damages$central %>% filter(year == 2100) %>% pull(damage)  
+glob_gdp <- damages$central %>% filter(year == 2100) %>% pull(global_gdp)
+
+-(glob_gdp / 1e6) * (1-exp( w_mean /100 )) / 873 * 0.001 * 0.98^40 / (1 - 0.98)
+
 
 # plotting ----------------------------------------------------------------
 base <- damages$base

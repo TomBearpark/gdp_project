@@ -127,7 +127,8 @@ get_me_sep <- function(m, lags,
       ) %>% 
         mutate(id = !!id, lag=as.character(lag))
     }
-  )
+  ) %>% 
+    mutate(lag = fct_relevel(lag, as.character(0:lags)))
   if(plot){
     return(plot_me(pdf, type, lags))
   }else{
@@ -135,9 +136,9 @@ get_me_sep <- function(m, lags,
   }
 }
 
-get_me_cum <- function(m, lags, name="temp", 
-                       type="growth", xrange=seq(0, 30, by = 5), id="", 
-                   plot=T){
+get_me_cumulative <- function(m, lags, name="temp", 
+                              type="growth", xrange=seq(0, 30, by = 5), id="", 
+                              plot=T){
   
   var <- get_var(type, name=name)
   
