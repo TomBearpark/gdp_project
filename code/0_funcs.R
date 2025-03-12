@@ -6,15 +6,17 @@
   # plotting marginal effects
 
 ## 2. Prepping data for projection:
-  # generating matrices
-  # checking ID order
+  # generating matrices to store projection data
   # formatting pre-projection data
   # formatting post-projection baseline
+    # including loading warming, population, and GDP projections
 
 ## 3. Projecting:
   # extracting coefficients
-  # projecting
-  # getting global damages
+  # getting global damages from country level projections
+  # projecting: core function is `project()`
+  # This is called by the `get_damages()` function, which 
+    # calls `project()` and `global_damages()`, and bootstraps to get uncertainty
   # plotting global damages
 
 ## 4. Outputs:
@@ -269,7 +271,8 @@ load_warming <- function(dir,
     filter(year >= 2019) %>% 
     group_by(ID) %>% 
     mutate(warming = temp-first(temp)) %>% 
-    ungroup()
+    ungroup() %>% 
+    arrange(ID)
 }
 
 load_gdp_ssp <- function(dir, scen){
@@ -474,6 +477,9 @@ get_damages <- function(m,
   return(list(central=central, uncert=uncert, base=base, proj=proj))
 }
 
+
+# OUTPUTS -----------------------------------------------------------------
+
 plot_global_damages <- function(central, uncert, vline=2020){
   ggplot(data=uncert) + 
     geom_vline(xintercept=vline, linetype=2)+
@@ -483,7 +489,6 @@ plot_global_damages <- function(central, uncert, vline=2020){
     geom_line(data = central, aes(x = year, y = damage), color='red')
 }
 
-# OUTPUTS -----------------------------------------------------------------
 
 plot_proj <- function(pdf, vline=2020){
   pdf %>% 

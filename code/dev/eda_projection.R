@@ -41,7 +41,6 @@ lags <- 10
 m  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = F, 
               FE = "ID+time1+ID[time1]")
 
-coefplot(m, keep="temp")
 get_me(m, lags, type=type)
 
 get_me_cumulative(m, lags, type=type) + 
@@ -70,15 +69,17 @@ df.base <- df %>%
   mutate(g = if_else(g > 0.03, 0.03, g))
 
 # Load warming data
-df.warming <- load_warming(dir) %>% 
-  filter(ID %in% df$ID)
+df.warming <- load_warming(dir) %>% filter(ID %in% df$ID)
 
 # Plot the warming 
 total.warming <- df.warming %>% filter(year %in% c(2019, 2100)) 
-total.warming %>% filter(year == 2100) %>% ggplot() + geom_histogram(aes(x = warming))
+total.warming %>% filter(year == 2100) %>% 
+  ggplot() + geom_histogram(aes(x = warming)) +
+  ggtitle("Projected country level warming, 2019-2100")
 
 left_join(df %>% filter(year == 2019), total.warming) %>% 
-  ggplot() + geom_point(aes(x = temp1, y = temp)) + geom_abline()
+  ggplot() + geom_point(aes(x = temp1, y = temp)) + geom_abline() + 
+  ggtitle("Temp levels in historic vs projection data")
 
 NN <- length(unique(df$ID))
 print(NN)
