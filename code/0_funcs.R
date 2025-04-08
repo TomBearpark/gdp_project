@@ -61,7 +61,8 @@ run_reg <- function(df,
                     global=FALSE, 
                     cluster="ID", 
                     spec="poly2", 
-                    FE = "ID + time1 + ID[time1]"){
+                    FE = "ID + time1 + ID[time1]", 
+                    return_ff=F){
   
   var <- get_var(type)
   poly_order <- as.numeric(str_extract(spec, "[0-9]"))
@@ -82,6 +83,7 @@ run_reg <- function(df,
     poly_control = poly_control, 
     leads = 0, lags=lags , FE=FE
   )
+  if(return_ff) return(ff)
   feols(
     ff, 
     data = df, 
@@ -97,7 +99,7 @@ plot_me <- function(pdf, type, lags=NULL){
     geom_line() + 
     geom_ribbon(aes(temp, ymin = conf.low, ymax = conf.high), 
                 alpha = .2) + 
-    ggtitle(type) + xlab("Temp") + ylab("ME")
+    ggtitle(paste0(type, ", ", lags, " lags")) + xlab("Temp") + ylab("ME")
   
   if(!is.null(lags)) p <- p+facet_wrap(~lag) 
   
@@ -257,7 +259,6 @@ load_warming <- function(dir,
                          scen = "median"
 ){
   read_excel(paste0(dir, 
-                    '/data/projection/', 
                     'cmip6-x0.25_timeseries_tas', 
                     '_timeseries_annual_2015-2100_median,p10,', 
                     'p90_ssp585_ensemble_all_mean.xlsx'), 

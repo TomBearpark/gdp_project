@@ -54,7 +54,6 @@ proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
 warming <- load_warming(dir, "median") %>% filter(ID %in% df$ID)
-warming <- 4
 post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
 proj <- post.proj$proj
@@ -86,7 +85,8 @@ pdf <- pmap(
                           df.pop=df.pop, 
                           uncertainty=T)
     
-    plot_global_damages(dam.df$central, dam.df$uncert) 
+    plot_global_damages(dam.df$central, dam.df$uncert) + 
+      ggtitle(paste0(type, ", ", lags, " lags"))
     ggsave(paste0(dir.out, type, "_", lags, "_damages",".pdf"))
     dam.df
   }
@@ -98,8 +98,21 @@ central <- map_dfr(seq_along(pdf), function(ii) pdf[[ii]]$central) %>%
 uncert <- map_dfr(seq_along(pdf), function(ii) pdf[[ii]]$uncert) %>% 
   mutate(lags = as.factor(lags))
 
-plot_global_damages(central, uncert) + 
-  facet_wrap(~type+lags, nrow=2, scales='free')
+# PLOTS -------------------------------------------------------------------
+
+plot_global_damages(central %>% filter(lags == 0), 
+                    uncert %>% filter(lags == 0)) + 
+  facet_wrap(~type+lags, nrow=1, scales='fixed')
+  
+
+plot_global_damages(central %>% filter(type == "levels", lags %in% c(0, 5, 10)), 
+                    uncert%>% filter(type == "levels", lags %in% c(0, 5, 10))) + 
+  facet_wrap(~lags, nrow=1) 
+
+
+plot_global_damages(central %>% filter(type == "growth", lags %in% c(0, 5, 10)), 
+                    uncert%>% filter(type == "growth", lags %in% c(0, 5, 10))) + 
+  facet_wrap(~lags, nrow=1) 
 
 ggplot() + 
   geom_hline(yintercept = 0, linetype="dashed", color = "black") +

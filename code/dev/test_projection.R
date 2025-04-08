@@ -27,16 +27,19 @@ df.glob <-
   select(year, gtemp1 = gtmp_noaa_aw)  %>% 
   mutate(id = "global", gtemp2 = gtemp1^2, 
          dgtemp1 = lag(gtemp1), 
-         dgtemp2 = lag(gtemp2)) %>% 
-  add_lags(vars = c("gtemp","dgtemp"),  sort_df = F, max.p = 2, 
+         dgtemp2 = lag(gtemp2), 
+         date=year) %>% 
+  add_lags(vars = c("gtemp","dgtemp"),  sort_df = T, max.p = 2, 
            lags=max_lags) %>% 
-  select(-id)
-  
+  select(-id, -date)
 
 # LOAD DATA ---------------------------------------------------------------
 
 df.reg <- load_historic_data(paste0(dir, "/replication/"), lags=max_lags) %>% 
-  left_join(df.glob)
+  left_join(df.glob) %>% 
+  group_by(year) %>% 
+  mutate(ggtemp = mean(l0_temp1,na.rm=T)) %>%
+  ungroup()
 
 plt.temps <- df.reg %>% 
   filter(ID %in% toPlot) %>% 
@@ -50,15 +53,29 @@ df.reg %>%
   geom_vline(data = plt.temps, aes(xintercept=temp, color=ID)) + 
   geom_vline(data = plt.temps, aes(xintercept=temp_proj, color=ID), linetype=2)
 
+ggplot(df.reg) + 
+  geom_point(aes(x = ggtemp, y = l0_gtemp1))
+
 # RUN REGRESSION ----------------------------------------------------------
-type <- "levels"
-lags <- 10
+type <- "growth"
+lags <- 0
+# df.reg <- df.reg %>% filter(year <= 2019)
 m1  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = F, 
-              FE = "ID+time1+ID[time1]")
+              FE = "ID+time1+ID[time1]+ID[time2]", cluster = c("ID", "time1"))
+
+m11 <- feols(
+  g ~ l0_temp1 + l0_temp2 + ggtemp|ID+ID[time1]+ID[time2], df.reg
+)
 
 m2  <- run_reg(df.reg, type=type, lags=lags, spec=spec, global = T, 
-              FE = "ID+ID[time1]", cluster = c("ID", "time1"))
-etable(m1, m2)
+              FE = "ID+ID[time1]+ID[time2]", cluster = c("ID", "time1"))
+
+etable(m1, m11, m2)
+
+
+
+
+
 coefplot(m2, keep="gtemp")
 
 m3 <- feols(g ~ 
