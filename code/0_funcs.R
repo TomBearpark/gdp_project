@@ -24,7 +24,10 @@
 
 # RUNNING REGRESSIONS -----------------------------------------------------
 
-load_historic_data <- function(dir, lags=10, max.p=2){
+load_historic_data <- function(dir, 
+                               lags = 10, 
+                               max.p = 2){
+  
   df.in <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
     rename(temp1 = era_mwtemp, pop = SP.POP.TOTL) %>%
     group_by(ID = ISO3) %>% 
@@ -227,6 +230,7 @@ gen_mats <- function(NN, yrs, IDs,
 }
 
 check_ID_order <- function(mat, df, yr=2000){
+  
   if('year' %in% names(df)) df <- df %>% filter(year == yr)
   
   stopifnot(rownames(mat)==df %>% arrange(ID) %>% pull(ID))
@@ -332,8 +336,8 @@ format_post_proj_baseline <- function(yrs, base, proj, warming){
   return(list(base=base, proj=proj))
 }
 
-
 # PROJECTION --------------------------------------------------------------
+
 extract_coefs <- function(coefs, var){
   
   # Extract coefficients
@@ -405,7 +409,6 @@ global_damages <- function(proj,
   )  
 }
 
-
 get_damages <- function(m, 
                         type, 
                         base, 
@@ -413,7 +416,10 @@ get_damages <- function(m,
                         yrs,
                         lags, 
                         df.pop, 
-                        uncertainty=T){
+                        Ndraws=500, 
+                        uncertainty=TRUE, 
+                        reduce_uncert=FALSE
+                        ){
   beta <- coef(m)
   vcov <- vcov(m)
   
@@ -438,7 +444,7 @@ get_damages <- function(m,
   
   # Draw from statistical uncertainty
   if(uncertainty){
-    draws <- MASS::mvrnorm(n = 500, mu = beta, Sigma = vcov)
+    draws <- MASS::mvrnorm(n = Ndraws, mu = beta, Sigma = vcov)
     uncert <- 
       map_dfr(
         1:dim(draws)[1], function(kk){
@@ -458,19 +464,26 @@ get_damages <- function(m,
           proj <- projected$proj
           
           # Get global damages 
-          global_damages(proj, base, df.pop, yrs) %>% 
-            mutate(draw = kk)
+          if(reduce_uncert){
+            global_damages(proj, base, df.pop, yrs) %>% 
+              mutate(draw = kk)
+          }else{
+            damages <- 100*(proj$y-base$y) / base$y 
+            damages %>% 
+              as.data.frame() %>% 
+              mutate(ID = rownames(.)) %>% 
+              pivot_longer(cols = -ID) %>% 
+              mutate(draw = kk) %>% 
+              rename(year = name, damage = value) 
+          }
         }
-      ) %>% 
-      group_by(year) %>%
-      summarize(q025 = quantile(damage, .025), 
-                q05  = quantile(damage, .05),
-                q25  = quantile(damage, .25),
-                q75  = quantile(damage, .75),
-                q95  = quantile(damage, .95),
-                q975 = quantile(damage, .975), 
-                .groups = 'drop') %>% 
-      mutate(type = type, lags=lags)
+      )
+    if(reduce_uncert){
+      uncert <- uncert %>% 
+        group_by(year) %>%
+        add_q() %>% 
+        mutate(type = type, lags=lags)
+    }
   }else{
     uncert <- tibble()
   }
@@ -478,8 +491,19 @@ get_damages <- function(m,
   return(list(central=central, uncert=uncert, base=base, proj=proj))
 }
 
-
 # OUTPUTS -----------------------------------------------------------------
+
+add_q <- function(df){
+  df %>% 
+    summarize(q025 = quantile(damage, .025), 
+            q05  = quantile(damage, .05),
+            q25  = quantile(damage, .25),
+            q75  = quantile(damage, .75),
+            q95  = quantile(damage, .95),
+            q975 = quantile(damage, .975), 
+            sd = sd(damage), 
+            .groups = 'drop') 
+}
 
 plot_global_damages <- function(central, uncert, vline=2020){
   ggplot(data=uncert) + 
@@ -489,7 +513,6 @@ plot_global_damages <- function(central, uncert, vline=2020){
     geom_ribbon(aes(x = year, ymin = q25, ymax = q75), alpha=.5) +
     geom_line(data = central, aes(x = year, y = damage), color='red')
 }
-
 
 plot_proj <- function(pdf, vline=2020){
   pdf %>% 
