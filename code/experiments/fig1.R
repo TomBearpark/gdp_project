@@ -3,8 +3,8 @@
 # devtools::install_github("TomBearpark/useful")
 
 if(!require(pacman)) install.packages('pacman')
-pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, useful, readxl, patchwork, 
-               rnaturalearth)
+pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, 
+               useful, readxl, patchwork, rnaturalearth)
 theme_set(theme_classic())
 
 # get user info and set directory locations
@@ -26,9 +26,7 @@ shp <- ne_countries(scale = "large", returnclass = "sf") %>%
   filter(!is.na(iso_a3)) %>% 
   select(ID = iso_a3_eh)
 
-
 shp %>% ggplot() + geom_sf()
-
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
@@ -203,13 +201,37 @@ damages.2095 <- pdf.central %>%
 
 # variance map ------------------------------------------------------------
 map.df <- uncert.2095 %>% 
+  # filter(model == "access_cm2") %>% 
   group_by(ID) %>% 
   add_q()
 
 map <- left_join(shp, map.df) %>% 
+  filter(sd < 20) %>% 
   ggplot() + 
-  geom_sf(aes(fill = sd)) + 
-  scale_fill_viridis_c(trans='log')
+  geom_sf(aes(fill = log(sd))) + 
+  scale_fill_viridis_c()
+map
+ 
+df.base %>% 
+  left_join(map.df) %>% 
+  filter(pop > 1000000) %>% 
+  ggplot() + 
+  geom_smooth(aes(x = temp, y = q75-q25), color='black', se=F)   +
+  geom_point(aes(x = temp, y =q75-q25, size = pop),alpha=.6) 
+
+df.clim %>% 
+  filter(year %in% c(2020, 2090)) %>% 
+  pivot_wider(names_from = year, values_from = warming)  %>% 
+  mutate(warming = `2090` - `2020`)  %>% 
+  group_by(ID) %>% 
+  summarize(warming = mean(warming)) %>% 
+  left_join(map.df) %>% 
+  # filter(pop > 1000000) %>% 
+  ggplot() + 
+  geom_smooth(aes(x = log(warming), y = log(q75-q25)), color='black', se=F)   +
+  geom_point(aes(x = log(warming), y = log(q75-q25)),alpha=.6) 
+
+
 
 # Some countries only 
 plot.ids <- c("USA", "RUS", "SDN")
