@@ -3,8 +3,17 @@
 # devtools::install_github("TomBearpark/useful")
 
 if(!require(pacman)) install.packages('pacman')
-pacman::p_load(tidyverse, fixest, haven, marginaleffects, broom, 
-               useful, readxl, patchwork, rnaturalearth)
+pacman::p_load(MASS, 
+               tidyverse, 
+               fixest,
+               haven,
+               marginaleffects,
+               broom,
+               useful,
+               readxl,
+               patchwork, 
+               rnaturalearth
+               )
 theme_set(theme_classic())
 
 # get user info and set directory locations
@@ -128,45 +137,46 @@ df.clim <- df.clim %>%
 
 df.pop <- df.base %>% select(ID, pop)
 m      <- run_reg(df.reg, type=type, lags=lags)
-# 
 models <- unique(df.clim$model)
 
-pdf <- 
-  map(
-    set_names(models),
-    function(ww){
-      
-      df.warming <- df.clim %>% filter(model == ww)
-      
-      post.proj <- format_post_proj_baseline(yrs, base, proj, df.warming)
-      base <- post.proj$base
-      proj <- post.proj$proj
-      
-      get_damages(m=m, 
-                  type=type, 
-                  base=base, 
-                  proj=proj,
-                  yrs=yrs, 
-                  lags=lags, 
-                  df.pop=df.pop, 
-                  uncertainty=TRUE,
-                  reduce_uncert = FALSE
-                  )
-    }
+Ndraws <- 500
+draws  <- MASS::mvrnorm(n = Ndraws, mu = coef(m), Sigma = vcov(m))
+
+# Loop over models, saving outputs
+pdf.central <- list()
+pdf.uncert  <- list()
+
+for (i in seq_along(models)) {
+  print(i)
+  ww <- models[i]
+  
+  df.warming <- df.clim %>% filter(model == ww)
+  post.proj <- format_post_proj_baseline(yrs, base, proj, df.warming)
+  base <- post.proj$base
+  proj <- post.proj$proj
+  
+  result <- get_damages(
+    m = m, 
+    type = type, 
+    base = base, 
+    proj = proj,
+    yrs = yrs, 
+    lags = lags, 
+    df.pop = df.pop, 
+    uncertainty = TRUE,
+    reduce_uncert = FALSE, 
+    draws = draws
   )
+  
+  pdf.central[[i]] <- result$central %>% mutate(model = ww)
+  pdf.uncert[[i]] <- result$uncert %>% mutate(model = ww)
+  
+  rm(result)
+  gc()
+}
 
-# Extract data
-pdf.central <- map_dfr(models, 
-               function(ww){
-                 pdf[[ww]] %>% pluck("central") %>% mutate(model=ww)
-               }) 
-
-pdf.uncert <- map_dfr(
-  models, 
-  function(ww){
-    pdf[[ww]] %>% pluck("uncert") %>% mutate(model=ww) 
-  }
-)
+pdf.central <- bind_rows(pdf.central)
+pdf.uncert  <- bind_rows(pdf.uncert)
 gc()
 
 pdf.central %>% 

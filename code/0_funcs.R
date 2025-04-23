@@ -418,7 +418,8 @@ get_damages <- function(m,
                         df.pop, 
                         Ndraws=500, 
                         uncertainty=TRUE, 
-                        reduce_uncert=FALSE
+                        reduce_uncert=FALSE, 
+                        draws=NULL
                         ){
   beta <- coef(m)
   vcov <- vcov(m)
@@ -444,7 +445,7 @@ get_damages <- function(m,
   
   # Draw from statistical uncertainty
   if(uncertainty){
-    draws <- MASS::mvrnorm(n = Ndraws, mu = beta, Sigma = vcov)
+    if(is.null(draws)) draws <- MASS::mvrnorm(n = Ndraws, mu = beta, Sigma = vcov)
     uncert <- 
       map_dfr(
         1:dim(draws)[1], function(kk){
@@ -474,7 +475,8 @@ get_damages <- function(m,
               mutate(ID = rownames(.)) %>% 
               pivot_longer(cols = -ID) %>% 
               mutate(draw = kk) %>% 
-              rename(year = name, damage = value) 
+              rename(year = name, damage = value) %>% 
+              filter(year >= max(yrs$pre))
           }
         }
       )
