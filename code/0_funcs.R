@@ -497,13 +497,17 @@ get_damages <- function(m,
 
 add_q <- function(df){
   df %>% 
-    summarize(q025 = quantile(damage, .025), 
-            q05  = quantile(damage, .05),
-            q25  = quantile(damage, .25),
-            q75  = quantile(damage, .75),
-            q95  = quantile(damage, .95),
-            q975 = quantile(damage, .975), 
-            sd = sd(damage), 
+    summarize(min = min(damage), 
+              q01 = quantile(damage, .01),
+              q025 = quantile(damage, .025), 
+              q05  = quantile(damage, .05),
+              q25  = quantile(damage, .25),
+              q75  = quantile(damage, .75),
+              q95  = quantile(damage, .95),
+              q975 = quantile(damage, .975), 
+              q99 = quantile(damage, .99),
+              max= max(damage), 
+              sd = sd(damage), 
             .groups = 'drop') 
 }
 

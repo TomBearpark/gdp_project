@@ -15,6 +15,7 @@ pacman::p_load(MASS,
                rnaturalearth
                )
 theme_set(theme_classic())
+set.seed(1)
 
 # get user info and set directory locations
 user <- Sys.info()[["user"]]
@@ -39,10 +40,11 @@ shp %>% ggplot() + geom_sf()
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-max_lags <- 10
 lags     <- 10
 type     <- "levels"
 toPlot   <- c("USA", "CHN", "SDN")
+# Number of bootstraps from statistical uncertainty
+Ndraws   <- 250
 
 # GET BASELINES -----------------------------------------------------------
 
@@ -142,7 +144,6 @@ df.pop <- df.base %>% select(ID, pop)
 m      <- run_reg(df.reg, type=type, lags=lags)
 models <- unique(df.clim$model)
 
-Ndraws <- 500
 draws  <- MASS::mvrnorm(n = Ndraws, mu = coef(m), Sigma = vcov(m))
 
 # Loop over models, saving outputs
@@ -182,7 +183,6 @@ pdf.central <- bind_rows(pdf.central)
 pdf.uncert  <- bind_rows(pdf.uncert)
 gc()
 
-
 # Plotting ----------------------------------------------------------------
 
 pdf.central %>% 
@@ -190,13 +190,81 @@ pdf.central %>%
   geom_line(aes(x = year, y= damage, color = model, group=model)) + 
   scale_color_viridis_d() 
 
-
-# Global time series 
-# pdf.uncert %>% group_by(year) %>% 
-
-
 uncert.2095 <- pdf.uncert %>% filter(year == max(yrs$proj)) %>% 
-  left_join(df.pop) 
+  left_join(df.pop) %>% 
+  group_by(model, draw, year) %>% 
+  summarise(damage=weighted.mean(damage, pop)) %>% 
+  ungroup()
+
+cc <- pdf.uncert %>% 
+  left_join(df.pop) %>% 
+  group_by(year, draw, model) %>%
+  summarize(damage = weighted.mean(damage, pop)) %>% 
+  group_by(year) %>% 
+  add_q() %>% 
+  mutate(year= as.numeric(year))
+
+bpdf <- 
+  bind_rows(
+    uncert.2095 %>% 
+      mutate(year = 2100, Uncertainty="Both") %>% 
+      group_by(year, Uncertainty) %>% 
+      add_q(), 
+    pdf.central %>% 
+      filter(year == 2095) %>% 
+      mutate(year = 2105, Uncertainty = "Climate") %>% 
+      group_by(year, Uncertainty) %>% 
+      add_q(), 
+    uncert.2095 %>% 
+      group_by(draw) %>% 
+      summarize(year = unique(year), damage = mean(damage))  %>% 
+      mutate(year = 2110, Uncertainty = "Statistical") %>% 
+      group_by(year, Uncertainty) %>% 
+      add_q()
+    )
+
+ts1 <- ggplot() + 
+  geom_hline(yintercept=0, linetype='dashed', color='grey') +
+  geom_line(data = 
+              pdf.central %>% 
+              group_by(year) %>% summarize(damage = mean(damage)) %>% 
+              filter(year >= 2020), 
+            aes(x = year, y = damage)) + 
+  geom_ribbon(data = cc, aes(x = year, ymin=q01, ymax = q99), 
+              alpha=.1) + 
+  geom_ribbon(data = cc, aes(x = year, ymin=q025, ymax = q975), 
+              alpha=.2) + 
+  geom_ribbon(data = cc, aes(x = year, ymin=q05, ymax = q95), 
+              alpha=.3) + 
+  geom_ribbon(data = cc, aes(x = year, ymin=q25, ymax = q75),
+              alpha=.4) + 
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1, scale=1)) + 
+  xlab("") + 
+  ylab("% global gdp-pc") + 
+  geom_errorbar(
+    data = bpdf, 
+    aes(x = year, ymin = q01, ymax = q99, color=Uncertainty), 
+    width=4, alpha=.7
+  ) + 
+  geom_errorbar(
+    data = bpdf, 
+    aes(x = year, ymin = q025, ymax = q975, color=Uncertainty), 
+    width=3, alpha=.8
+  ) + 
+  geom_errorbar(
+    data = bpdf, 
+      aes(x = year, ymin = q05, ymax = q95, color=Uncertainty), 
+      width=2, alpha=.9
+  ) + 
+  geom_errorbar(
+    data = bpdf, 
+    aes(x = year, ymin = q25, ymax = q75, color=Uncertainty), 
+    width=1, alpha=1
+  )
+
+ts1
+
+# MAPS
 
 errors <- uncert.2095 %>% 
   group_by(model, year, draw) %>% 
