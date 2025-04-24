@@ -33,7 +33,7 @@ source(paste0(code, "code/0_funcs.R"))
 
 shp <- ne_countries(scale = "large", returnclass = "sf") %>% 
   filter(!is.na(iso_a3)) %>% 
-  select(ID = iso_a3_eh)
+  select(ID = iso_a3_eh, name)
 
 shp %>% ggplot() + geom_sf()
 
@@ -55,13 +55,15 @@ df.reg <- load_historic_data(paste0(dir, "/data/historic/"), lags=max_lags)
 # Filter to period we are going to use in plotting / getting baseline. 
 # Should interpolate missing values to get full panel?
 
+vars_to_fill <- c("g", "temp1", "pop", "y")
+
 df <- df.reg %>% 
   filter(year >= min(yrs$pre)) %>% 
-  filter(!is.na(g), !is.na(temp1), !is.na(y))  %>% 
-  group_by(ID) %>%
-  add_tally() %>%
-  ungroup() %>%
-  filter(n == max(n))
+  group_by(ID) %>% 
+    filter(!if_any(all_of(vars_to_fill), ~ all(is.na(.)))) %>% 
+    mutate(across(all_of(vars_to_fill), ~ 
+                    if_else(is.na(.), mean(., na.rm = TRUE), .))) %>% 
+  ungroup()
 
 # Get some averages which are used to define counter-factual
 df.base <- df %>% 
@@ -72,7 +74,8 @@ df.base <- df %>%
   select(ID, temp, g, pop) %>% 
   mutate(g = if_else(g > 0.03, 0.03, g))
 
-NN <- length(unique(df$ID))
+stopifnot(nrow(df.base)==nrow(na.omit(df.base)))
+NN <- length(unique(df.base$ID))
 print(NN)
 
 # Create matrices to store data
@@ -147,7 +150,7 @@ pdf.central <- list()
 pdf.uncert  <- list()
 
 for (i in seq_along(models)) {
-  print(i)
+
   ww <- models[i]
   
   df.warming <- df.clim %>% filter(model == ww)
@@ -169,7 +172,7 @@ for (i in seq_along(models)) {
   )
   
   pdf.central[[i]] <- result$central %>% mutate(model = ww)
-  pdf.uncert[[i]] <- result$uncert %>% mutate(model = ww)
+  pdf.uncert[[i]]  <- result$uncert %>% mutate(model = ww)
   
   rm(result)
   gc()
@@ -179,10 +182,18 @@ pdf.central <- bind_rows(pdf.central)
 pdf.uncert  <- bind_rows(pdf.uncert)
 gc()
 
+
+# Plotting ----------------------------------------------------------------
+
 pdf.central %>% 
   ggplot() + 
   geom_line(aes(x = year, y= damage, color = model, group=model)) + 
   scale_color_viridis_d() 
+
+
+# Global time series 
+# pdf.uncert %>% group_by(year) %>% 
+
 
 uncert.2095 <- pdf.uncert %>% filter(year == max(yrs$proj)) %>% 
   left_join(df.pop) 
@@ -216,9 +227,9 @@ map.df <- uncert.2095 %>%
   add_q()
 
 map <- left_join(shp, map.df) %>% 
-  filter(sd < 20) %>% 
+  # filter(sd < 20) %>% 
   ggplot() + 
-  geom_sf(aes(fill = log(sd))) + 
+  geom_sf(aes(fill = log(sd)), color=NA) + 
   scale_fill_viridis_c()
 map
  
