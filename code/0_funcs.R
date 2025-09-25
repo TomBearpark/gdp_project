@@ -24,31 +24,84 @@
 
 # RUNNING REGRESSIONS -----------------------------------------------------
 
+# Helper to create leave one out
+leave_one_out <- function(data, vars, group_vars, stub = "loo") {
+  data %>%
+    mutate(
+      across(
+        all_of(vars),
+        ~ {
+          nonmiss <- sum(!is.na(.x))
+          if (nonmiss <= 1) NA_real_ else (sum(.x, na.rm = TRUE) - .x) / (nonmiss - 1)
+        },
+        .names = paste0(stub, "_{.col}")
+      ),
+      .by = all_of(group_vars)
+    )
+}
+
 load_historic_data <- function(dir, 
                                lags = 10, 
-                               max.p = 2){
+                               max.p = 2, 
+                               min.year = 1900, 
+                               tempvar = "era_mwtemp", 
+                               add_cont = FALSE){
   
-  df.in <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
-    rename(temp1 = era_mwtemp, pop = SP.POP.TOTL) %>%
-    group_by(ID = ISO3) %>% 
-    arrange(ID, year) %>% 
-    mutate(y = NY.GDP.PCAP.KD, 
-           dy = log(y) - lag(log(y)), 
-           temp2 = temp1^2, 
-           time1 = year - 1960, 
-           time2 = time1^2, 
-           Tbar = mean(temp1, na.rm=TRUE), 
-           dtemp1 = temp1-lag(temp1), 
-           dtemp2 = temp2-lag(temp2)
-    ) %>% 
-    ungroup()  %>% 
-    filter(year >= 1960 & year <= 2019)  %>% 
-    arrange(ID, year) %>% 
-    group_by(ID) %>% 
-    useful::add_lags(vars = c("temp", "dtemp"), 
-                     lags=lags, max.p=max.p, 
-                     sort_df = FALSE) %>% 
-    select(ID, year, time1, time2, y, g=dy, pop, contains("temp"))
+  df <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
+    ungroup() %>% 
+    rename(temp1 = all_of(tempvar), pop = SP.POP.TOTL) 
+  
+  for(kk in 1:max.p) {
+    df[paste0("temp", kk)] <- df$temp1^kk
+  }
+  
+  if(add_cont) {
+    vars <- c("temp", "dtemp", "cont", "dcont")
+    df <- df %>% 
+      # Add continent average temperature as control
+      leave_one_out(vars = c("temp1", "temp2"),
+                    group_vars = c("year", "region"),
+                    stub = "cont") %>%
+      rename(cont1 = cont_temp1, cont2 = cont_temp2) 
+  }else{
+    vars <- c("temp", "dtemp")
+  }
+  
+  df <- df %>%
+    group_by(ID = ISO3) %>%
+    arrange(ID, year) %>%
+    mutate(y      = NY.GDP.PCAP.KD,
+           dy     = log(y) - lag(log(y)),
+           time1  = year - 1960,
+           time2  = time1^2,
+           Tbar   = mean(temp1, na.rm=TRUE)
+    ) 
+  
+  for(kk in 1:max.p) {
+    df[paste0("dtemp", kk)] <- df[paste0("temp", kk)] - dplyr::lag(df[paste0("temp", kk)], 1)
+  }
+  
+  if(add_cont){
+    df <- df %>% 
+      mutate(
+        dcont1 = cont1 - lag(cont1),
+        dcont2 = cont2 - lag(cont2)
+      )
+  }
+  df %>%
+    ungroup()  %>%
+    arrange(ID, year) %>%
+    group_by(ID) %>%
+    useful::add_lags(vars = vars,
+                     lags=lags, max.p=max.p,
+                     sort_df = FALSE) %>%
+    ungroup() %>%
+    select(ID, 
+           any_of("region"), 
+           year, time1, time2, y, g=dy, pop, 
+           contains("temp"), 
+           contains("cont")) %>% 
+    filter(year >= min.year & year <= 2019) 
 }
 
 get_var <- function(type, name="temp"){
@@ -61,23 +114,29 @@ get_var <- function(type, name="temp"){
 run_reg <- function(df, 
                     type="levels", 
                     lags=1, 
-                    global=FALSE, 
+                    control = 'none', 
                     cluster="ID", 
                     spec="poly2", 
                     FE = "ID + time1 + ID[time1]", 
                     return_ff=F){
   
   var <- get_var(type)
-  poly_order <- as.numeric(str_extract(spec, "[0-9]"))
+  poly_order <- as.numeric(str_extract(spec, "[0-9]+"))
   
   
-  if(global){
+  if(control == 'global'){
     control <- get_var(type, 'gtemp')
     if(lags==0) control <- paste0("l0_", control)
     
     poly_control <- 1
-  }else{
+  }else if (control == "cont"){
+    control <- get_var(type, 'cont')
+    if(lags==0) control <- paste0("l0_", control)
+    poly_control <- 2
+  }else if(control == 'none'){
     control <- poly_control <- NULL
+  }else{
+    stop("not implemented")
   }
   if(lags==0) var <- paste0("l0_", var)
   
@@ -94,45 +153,63 @@ run_reg <- function(df,
   )
 }
 
-plot_me <- function(pdf, type, lags=NULL){
+plot_me <- function(pdf, type=NULL, lags=NULL, group=NULL, se=TRUE){
+  if(is.null(group)){
+    p <- ggplot(pdf, aes(temp, estimate)) 
+  }else{
+    p <- ggplot(pdf, aes(temp, estimate, color=get(group), fill=get(group)))
+  }
   
-  p <- ggplot(pdf, 
-              aes(temp, estimate)) + 
+  p <- p + 
     geom_hline(yintercept=0, linetype="dashed") +
     geom_line() + 
-    geom_ribbon(aes(temp, ymin = conf.low, ymax = conf.high), 
-                alpha = .2) + 
-    ggtitle(paste0(type, ", ", lags, " lags")) + xlab("Temp") + ylab("ME")
+    xlab("Temp") + ylab("ME") 
+  # browser()
+  if(se){
+    p <- p + geom_ribbon(aes(temp, ymin = conf.low, ymax = conf.high), 
+                alpha = .2) 
+  } 
   
-  if(!is.null(lags)) p <- p+facet_wrap(~lag) 
+  if(!is.null(type) & !is.null(lags)) p <- p + ggtitle(paste0(type, ", ", lags, " lags"))
   
+  if(!is.null(lags) & lags != 0) p <- p+facet_wrap(~lag) 
   p
 }
 
-get_me_sep <- function(m, lags, 
+get_me_sep <- function(m, 
+                       lags, 
                        name="temp", 
                        type="growth", 
                        xrange=seq(0, 30, by = 5), 
                        id="", 
-                       plot=T){
+                       plot=T, 
+                       sample="", 
+                       l0_short = T){
   
   var <- get_var(type=type, name=name)
-  
+
   pdf <- map_dfr(
     0:lags, 
     function(lag){
       map_dfr(
         xrange, 
         function(temp){
+          
+          if(lags == 0 & l0_short){
+            l_id = ""
+          }else{
+            l_id = paste0("l", lag, "_")
+          }
+          
           hypotheses(m, 
-                     paste0(  "l", lag, "_", var, "1 + ", 
-                            "2*l", lag, "_", var, "2*",temp," = 0")) %>% 
+                     paste0(l_id, var, "1 + ", 
+                            "2*", l_id, var, "2*",temp," = 0")) %>% 
             broom::tidy() %>% 
             mutate(temp = !!temp, lag=!!lag)
           
         }
       ) %>% 
-        mutate(id = !!id, lag=as.character(lag))
+        mutate(id = !!id, lag=as.character(lag), sample = !!sample)
     }
   ) %>% 
     mutate(lag = fct_relevel(lag, as.character(0:lags)))
@@ -157,8 +234,11 @@ get_me_cumulative <- function(m, lags, name="temp",
           for(lag in 0:lags){
             ff <- paste0(ff, 
                          paste0(  "l", lag, "_", var, "1 + ", 
-                                "2*l", lag, "_", var, "2*",temp," + "))
+                                "2*l", lag, "_", var, "2*", temp," + ")
+                         )
           }
+          ff <- str_remove(ff, " \\+ $") # Remove trailing " + "
+          # browser()
           hypotheses(m, 
                      paste0(ff, " = 0")) %>% 
             broom::tidy() %>% 
@@ -170,7 +250,7 @@ get_me_cumulative <- function(m, lags, name="temp",
   if(plot){
     return(plot_me(pdf, type, lags))
   }else{
-    pdf
+    return(pdf)
   }
 }
 
@@ -188,7 +268,7 @@ get_me <- function(m, lags, name='temp',
              geom_line(data= pdf.cum, aes(temp, estimate), 
                        color = 'blue'))
   }else{
-    return(pdf)
+    return(pdf.sep)
   }
 }
 
@@ -255,6 +335,11 @@ format_pre_proj <- function(yrs, df, base, proj){
     # --- GDP 
     base$y[, tt] <- proj$y[, tt] <- df %>% 
       filter(year == yr) %>% arrange(ID) %>% pull(y)
+    
+    if(any(str_detect(names(proj), "cont"))){
+      base$cont[, tt] <- proj$cont[, tt] <- df %>% 
+        filter(year == yr) %>% arrange(ID) %>% pull(cont1)
+    }
   }
   return(list(base=base, proj=proj))
 }
@@ -322,8 +407,14 @@ format_post_proj_baseline <- function(yrs, base, proj, warming){
     if(is.numeric(warming)){
       proj$temp[,tt] <- df.base$temp + warming / yrs$TT * (tt-min(yrs$proj.ids))  
     }else if(is.data.frame(warming)){
-      proj$temp[,tt] <- df.base$temp + warming %>% 
-        filter(year == yrs$yrs[tt]) %>% pull(warming)
+      proj$temp[,tt] <- df.base$temp + 
+        (warming %>% filter(year == yrs$yrs[tt]) %>% pull(warming))
+      
+      if(any(str_detect(names(proj), "cont"))){
+        base$cont[,tt] <- df.base$cont
+        proj$cont[,tt] <- df.base$cont + 
+          (warming %>% filter(year == yrs$yrs[tt]) %>% pull(cont_warming))
+      }
     }
     
     # -- Growth
@@ -363,21 +454,45 @@ project <- function(b0, b1, type, base, proj, yrs, lags){
       
       base$tcons2[,tt] <- base$temp[,tt]^2-base$temp[,tt-1]^2
       proj$tcons2[,tt] <- proj$temp[,tt]^2-proj$temp[,tt-1]^2  
+      
+      if(any(str_detect(names(proj), "cont"))){
+        base$cont_tcons1[,tt] <- base$cont[,tt]-base$cont[,tt-1]
+        proj$cont_tcons1[,tt] <- proj$cont[,tt]-proj$cont[,tt-1]  
+        
+        base$cont_tcons2[,tt] <- base$cont[,tt]^2-base$cont[,tt-1]^2
+        proj$cont_tcons2[,tt] <- proj$cont[,tt]^2-proj$cont[,tt-1]^2  
+      }
     }
   }else if(type == "growth"){
     base$tcons1 <- base$temp
     proj$tcons1 <- proj$temp
     base$tcons2 <- base$temp^2
     proj$tcons2 <- proj$temp^2
+    if(any(str_detect(names(proj), "cont"))){
+      base$cont_tcons1 <- base$cont
+      proj$cont_tcons1 <- proj$cont
+      base$cont_tcons2 <- base$cont^2
+      proj$cont_tcons2 <- proj$cont^2
+    }
   }else{
     stop("not implemented")
   }
-  
+
   for(tt in yrs$proj.ids){
     lls <- tt-0:lags
-    
-    delta <- (proj$tcons1[, lls] - base$tcons1[, lls]) %*% b0 + 
-      (proj$tcons2[, lls] - base$tcons2[, lls]) %*% b1
+    if(any(str_detect(names(proj), "cont"))){
+      
+      delta <- 
+        (proj$tcons1[, lls] - base$tcons1[, lls]) %*% b0$temp + 
+        (proj$tcons2[, lls] - base$tcons2[, lls]) %*% b1$temp +
+        (proj$cont_tcons1[, lls] - base$cont_tcons1[, lls]) %*% b0$cont + 
+        (proj$cont_tcons2[, lls] - base$cont_tcons2[, lls]) %*% b1$cont
+      
+    }else{
+      delta <- (proj$tcons1[, lls] - base$tcons1[, lls]) %*% b0 + 
+        (proj$tcons2[, lls] - base$tcons2[, lls]) %*% b1
+    }
+
     
     # -- Growth
     proj$g[, tt] <- base$g[, tt] + delta
@@ -425,9 +540,20 @@ get_damages <- function(m,
   vcov <- vcov(m)
   
   # Get central estimate
-  b0 <- extract_coefs(beta, "temp1")
-  b1 <- extract_coefs(beta, "temp2")
-  
+  if(any(str_detect(names(beta), "cont"))){
+    b0 <- list(
+      temp=extract_coefs(beta, "temp1"),
+      cont=extract_coefs(beta, "cont1")
+    )
+    b1 <- list(
+      temp=extract_coefs(beta, "temp2"),
+      cont=extract_coefs(beta, "cont2")
+    )
+  }else{
+    b0 <- extract_coefs(beta, "temp1")
+    b1 <- extract_coefs(beta, "temp2")
+  }
+
   projected <- project(b0=b0, 
                        b1=b1, 
                        type=type, 
@@ -451,9 +577,19 @@ get_damages <- function(m,
         1:dim(draws)[1], function(kk){
           print(kk)
           beta <- draws[kk,]
-          b0 <- extract_coefs(beta, "temp1")
-          b1 <- extract_coefs(beta, "temp2")
-          
+          if(any(str_detect(names(beta), "cont"))){
+            b0 <- list(
+              temp=extract_coefs(beta, "temp1"),
+              cont=extract_coefs(beta, "cont1")
+            )
+            b1 <- list(
+              temp=extract_coefs(beta, "temp2"),
+              cont=extract_coefs(beta, "cont2")
+            )
+          }else{
+            b0 <- extract_coefs(beta, "temp1")
+            b1 <- extract_coefs(beta, "temp2")
+          }
           projected <- project(b0=b0, 
                                b1=b1, 
                                type=type, 
@@ -529,6 +665,7 @@ plot_proj <- function(pdf, vline=2020){
 }
 
 plotdf_mats <- function(toPlot, base, proj, plt=T, vline=2020){
+  
   pdf <- map_dfr(
     toPlot, 
     function(ii){
@@ -548,7 +685,7 @@ plotdf_mats <- function(toPlot, base, proj, plt=T, vline=2020){
           y = proj$y[ii, ], 
           g = proj$g[ii, ], 
           temp = proj$temp[ii, ], 
-          dam = (proj$y-base$y)[ii, ], 
+          dam = 100*(log(proj$y)-log(base$y))[ii, ], 
           scen = "proj"
         )
       )

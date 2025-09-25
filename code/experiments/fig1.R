@@ -16,7 +16,7 @@ pacman::p_load(MASS,
                )
 theme_set(theme_classic())
 set.seed(1)
-
+select <- dplyr::select
 # get user info and set directory locations
 user <- Sys.info()[["user"]]
 if(user == "tombearpark"){
@@ -40,7 +40,7 @@ shp %>% ggplot() + geom_sf()
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-lags     <- 10
+max_lags     <- 10
 type     <- "levels"
 toPlot   <- c("USA", "CHN", "SDN")
 # Number of bootstraps from statistical uncertainty
@@ -140,6 +140,7 @@ df.clim <- df.clim %>%
 
 # PROJECTION --------------------------------------------------------------
 
+lags <- 0
 df.pop <- df.base %>% select(ID, pop)
 m      <- run_reg(df.reg, type=type, lags=lags)
 models <- unique(df.clim$model)

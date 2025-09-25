@@ -53,7 +53,7 @@ base <- pre.proj$base
 proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
-warming <- load_warming(dir, "median") %>% filter(ID %in% df$ID)
+warming <- load_warming(paste0(dir, "data/projection/"), "median") %>% filter(ID %in% df$ID)
 # warming <- 4
 post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
