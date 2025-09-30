@@ -118,9 +118,10 @@ run_reg <- function(df,
                     cluster="ID", 
                     spec="poly2", 
                     FE = "ID + time1 + ID[time1]", 
-                    return_ff=F){
+                    return_ff=F, 
+                    name = "temp"){
   
-  var <- get_var(type)
+  var <- get_var(type, name)
   poly_order <- as.numeric(str_extract(spec, "[0-9]+"))
   
   
@@ -259,7 +260,7 @@ get_me <- function(m, lags, name='temp',
                        plot=T){
    
   
-  pdf.sep <- get_me_sep(m, lags, name, type, xrange, id, plot=FALSE) 
+  pdf.sep <- get_me_sep(m, lags, name, type, xrange, id, plot=FALSE, l0_short = F) 
   pdf.cum <- get_me_cumulative(m, lags, name, type, xrange, id, plot=FALSE) %>% 
     select(-lag)
   

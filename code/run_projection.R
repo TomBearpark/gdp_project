@@ -53,7 +53,7 @@ base <- pre.proj$base
 proj <- pre.proj$proj
 
 ## Format post-projection baseline ------------------
-warming <- load_warming(dir, "median") %>% filter(ID %in% df$ID)
+warming <- load_warming(paste0(dir, "data/projection/"), "median") %>% filter(ID %in% df$ID)
 post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
 base <- post.proj$base
 proj <- post.proj$proj
@@ -66,7 +66,8 @@ df.pop <- df.base %>% select(ID, pop)
 pdf <- pmap(
   opts,
   function(lags, type){
-    
+    print(paste0(type, ", lags=", lags))
+    # browser()
     m  <- run_reg(df.reg, type=type, lags=lags)
     
     # Save ME info
@@ -83,7 +84,8 @@ pdf <- pmap(
                           yrs=yrs, 
                           lags=lags, 
                           df.pop=df.pop, 
-                          uncertainty=T)
+                          uncertainty=T, 
+                          reduce_uncert = T)
     
     plot_global_damages(dam.df$central, dam.df$uncert) + 
       ggtitle(paste0(type, ", ", lags, " lags"))
