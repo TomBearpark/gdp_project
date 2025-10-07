@@ -89,7 +89,8 @@ pdf <- pmap(
     
     plot_global_damages(dam.df$central, dam.df$uncert) + 
       ggtitle(paste0(type, ", ", lags, " lags"))
-    ggsave(paste0(dir.out, type, "_", lags, "_damages",".pdf"))
+    ggsave(paste0(dir.out, type, "_", lags, "_damages",".pdf"), 
+           height = 5, width = 5)
     dam.df
   }
 )
@@ -104,7 +105,7 @@ uncert <- map_dfr(seq_along(pdf), function(ii) pdf[[ii]]$uncert) %>%
 
 plot_global_damages(central %>% filter(lags == 0), 
                     uncert %>% filter(lags == 0)) + 
-  facet_wrap(~type+lags, nrow=1, scales='fixed')
+  facet_wrap(~type+lags, nrow=1, scales='free')
   
 
 plot_global_damages(central %>% filter(type == "levels", lags %in% c(0, 5, 10)), 
@@ -121,7 +122,7 @@ ggplot() +
   geom_point(aes(x = lags, y = damage, color = type), 
              data=central %>% filter(year == 2100), 
              position=position_dodge(width = .5)) +
-  # geom_errorbar(aes(x = lags, ymin = q05, ymax=q95, color = type),
-  #               position=position_dodge(width = .5), width=.5, 
-  #            data=uncert %>% filter(year == 2100)) +
+  geom_errorbar(aes(x = lags, ymin = q05, ymax=q95, color = type),
+                position=position_dodge(width = .5), width=.5,
+             data=uncert %>% filter(year == 2100)) +
   ylab("Damages, %GDP 2100") + xlab("No. lags in model")

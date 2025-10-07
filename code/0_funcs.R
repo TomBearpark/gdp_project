@@ -44,15 +44,20 @@ load_historic_data <- function(dir,
                                lags = 10, 
                                max.p = 2, 
                                min.year = 1900, 
+                               max.year = 2025,
                                tempvar = "era_mwtemp", 
                                add_cont = FALSE){
   
-  df <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
-    ungroup() %>% 
-    rename(temp1 = all_of(tempvar), pop = SP.POP.TOTL) 
+  # df <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
+  #   ungroup() %>% 
+  #   rename(temp1 = all_of(tempvar), pop = SP.POP.TOTL) 
+  df <- read_parquet(file.path(dir, '/replication/temp_gdp_panel.pq')) %>% 
+    as_tibble() %>% 
+    rename(temp1 = all_of(tempvar))
+  
   
   for(kk in 1:max.p) {
-    df[paste0("temp", kk)] <- df$temp1^kk
+    df[paste0("temp_", kk)] <- df$temp1^kk
   }
   
   if(add_cont) {
@@ -64,21 +69,21 @@ load_historic_data <- function(dir,
                     stub = "cont") %>%
       rename(cont1 = cont_temp1, cont2 = cont_temp2) 
   }else{
-    vars <- c("temp", "dtemp")
+    vars <- c("temp_", "dtemp_")
   }
   
   df <- df %>%
-    group_by(ID = ISO3) %>%
+    group_by(ID = iso3c) %>%
     arrange(ID, year) %>%
     mutate(y      = NY.GDP.PCAP.KD,
            dy     = log(y) - lag(log(y)),
            time1  = year - 1960,
            time2  = time1^2,
-           Tbar   = mean(temp1, na.rm=TRUE)
+           Tbar   = mean(temp_1, na.rm=TRUE)
     ) 
   
   for(kk in 1:max.p) {
-    df[paste0("dtemp", kk)] <- df[paste0("temp", kk)] - dplyr::lag(df[paste0("temp", kk)], 1)
+    df[paste0("dtemp_", kk)] <- df[paste0("temp_", kk)] - dplyr::lag(df[paste0("temp_", kk)], 1)
   }
   
   if(add_cont){
@@ -98,17 +103,17 @@ load_historic_data <- function(dir,
     ungroup() %>%
     select(ID, 
            any_of("region"), 
-           year, time1, time2, y, g=dy, pop, 
+           year, time1, time2, y, g=dy, any_of('pop'), 
            contains("temp"), 
            contains("cont")) %>% 
-    filter(year >= min.year & year <= 2019) 
+    filter(year >= min.year & year <= max.year) 
 }
 
 get_var <- function(type, name="temp"){
   if(type=="levels") var <- paste0("d", name)
   else if(type == "growth") var <- name
   else stop("not implemented")
-  return(var)
+  return(paste0(var, "_"))
 }
 
 run_reg <- function(df, 
