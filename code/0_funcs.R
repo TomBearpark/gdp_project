@@ -45,19 +45,29 @@ load_historic_data <- function(dir,
                                max.p = 2, 
                                min.year = 1900, 
                                max.year = 2025,
-                               tempvar = "era_mwtemp", 
-                               add_cont = FALSE){
-  
-  # df <- read_rds(file.path(dir, "temp_gdp_world_panel.rds")) %>% 
-  #   ungroup() %>% 
-  #   rename(temp1 = all_of(tempvar), pop = SP.POP.TOTL) 
-  df <- read_parquet(file.path(dir, '/replication/temp_gdp_panel.pq')) %>% 
-    as_tibble() %>% 
-    rename(temp1 = all_of(tempvar))
-  
+                               add_cont = FALSE, 
+                               old=FALSE){
+  if(old){
+    temp_var <- "era_mwtemp"
+    prec_var <- "era_mwprecip"
+    df <- read_rds(file.path(dir, "replication/temp_gdp_world_panel.rds")) %>%
+      ungroup() %>%
+      rename(temp1 = all_of(temp_var), prec1 = all_of(prec_var), 
+             pop = SP.POP.TOTL) %>% 
+      mutate(ID = ISO3)
+  }else{
+    temp_var <- "temp_degree_1"
+    prec_var <- "precip_degree_1"
+    clim.vars <- c(temp_var, prec_var)
+    df <- read_parquet(file.path(dir, '/replication/gdp_temp_precip_panel.pq')) %>% 
+      as_tibble() %>% 
+      rename(temp1 = all_of(temp_var), prec1 = all_of(prec_var)) %>% 
+      mutate(ID = iso3c)
+  }
   
   for(kk in 1:max.p) {
     df[paste0("temp_", kk)] <- df$temp1^kk
+    df[paste0("prec_", kk)] <- df$prec1^kk
   }
   
   if(add_cont) {
@@ -69,11 +79,11 @@ load_historic_data <- function(dir,
                     stub = "cont") %>%
       rename(cont1 = cont_temp1, cont2 = cont_temp2) 
   }else{
-    vars <- c("temp_", "dtemp_")
+    vars <- c("temp_", "dtemp_", "prec_", "dprec_")
   }
   
   df <- df %>%
-    group_by(ID = iso3c) %>%
+    group_by(ID) %>%
     arrange(ID, year) %>%
     mutate(y      = NY.GDP.PCAP.KD,
            dy     = log(y) - lag(log(y)),
@@ -84,6 +94,7 @@ load_historic_data <- function(dir,
   
   for(kk in 1:max.p) {
     df[paste0("dtemp_", kk)] <- df[paste0("temp_", kk)] - dplyr::lag(df[paste0("temp_", kk)], 1)
+    df[paste0("dprec_", kk)] <- df[paste0("prec_", kk)] - dplyr::lag(df[paste0("prec_", kk)], 1)
   }
   
   if(add_cont){
@@ -105,6 +116,7 @@ load_historic_data <- function(dir,
            any_of("region"), 
            year, time1, time2, y, g=dy, any_of('pop'), 
            contains("temp"), 
+           contains("prec"), 
            contains("cont")) %>% 
     filter(year >= min.year & year <= max.year) 
 }
@@ -147,7 +159,9 @@ run_reg <- function(df,
   if(lags==0) var <- paste0("l0_", var)
   
   ff <- useful::build_formula_poly(
-    yvar = "g", treat = var, poly_treat = poly_order, control=control, 
+    yvar = "g", treat = var, 
+    poly_treat = rep(poly_order, length(name)), 
+    control=control, 
     poly_control = poly_control, 
     leads = 0, lags=lags , FE=FE
   )
@@ -351,13 +365,18 @@ format_pre_proj <- function(yrs, df, base, proj){
 }
 
 load_warming <- function(dir, 
+                         file = 'rcp85',
                          scen = "median"
 ){
-  read_excel(paste0(dir, 
-                    'cmip6-x0.25_timeseries_tas', 
-                    '_timeseries_annual_2015-2100_median,p10,', 
-                    'p90_ssp585_ensemble_all_mean.xlsx'), 
-             sheet = scen) %>% 
+  if(file == 'rcp85'){
+    ff <- 'cmip6-x0.25_timeseries_tas_timeseries_annual_2015-2100_median,p10,p90_ssp585_ensemble_all_mean.xlsx'
+  }else if(file == 'rcp70'){
+    ff <- 'cmip6-x0.25_timeseries_tas_timeseries_annual_2015-2100_mean,median,p10,p90_ssp370_ensemble_all_mean.xlsx'
+  }else{
+    stop("need to download appropriate file")
+  }
+
+  read_excel(paste0(dir, ff), sheet = scen) %>%
     select(-name) %>% 
     pivot_longer(cols = -c(code), values_to = 'temp') %>% 
     mutate(year = str_remove(name, "-07") %>% as.numeric()) %>% 
@@ -368,7 +387,8 @@ load_warming <- function(dir,
     group_by(ID) %>% 
     mutate(warming = temp-first(temp)) %>% 
     ungroup() %>% 
-    arrange(ID)
+    arrange(ID) %>% 
+    mutate(ff = file)
 }
 
 load_gdp_ssp <- function(dir, scen){
@@ -548,16 +568,16 @@ get_damages <- function(m,
   # Get central estimate
   if(any(str_detect(names(beta), "cont"))){
     b0 <- list(
-      temp=extract_coefs(beta, "temp1"),
-      cont=extract_coefs(beta, "cont1")
+      temp=extract_coefs(beta, "temp_1"),
+      cont=extract_coefs(beta, "cont_1")
     )
     b1 <- list(
-      temp=extract_coefs(beta, "temp2"),
-      cont=extract_coefs(beta, "cont2")
+      temp=extract_coefs(beta, "temp_2"),
+      cont=extract_coefs(beta, "cont_2")
     )
   }else{
-    b0 <- extract_coefs(beta, "temp1")
-    b1 <- extract_coefs(beta, "temp2")
+    b0 <- extract_coefs(beta, "temp_1")
+    b1 <- extract_coefs(beta, "temp_2")
   }
 
   projected <- project(b0=b0, 
@@ -585,16 +605,16 @@ get_damages <- function(m,
           beta <- draws[kk,]
           if(any(str_detect(names(beta), "cont"))){
             b0 <- list(
-              temp=extract_coefs(beta, "temp1"),
-              cont=extract_coefs(beta, "cont1")
+              temp=extract_coefs(beta, "temp_1"),
+              cont=extract_coefs(beta, "cont_1")
             )
             b1 <- list(
-              temp=extract_coefs(beta, "temp2"),
-              cont=extract_coefs(beta, "cont2")
+              temp=extract_coefs(beta, "temp_2"),
+              cont=extract_coefs(beta, "cont_2")
             )
           }else{
-            b0 <- extract_coefs(beta, "temp1")
-            b1 <- extract_coefs(beta, "temp2")
+            b0 <- extract_coefs(beta, "temp_1")
+            b1 <- extract_coefs(beta, "temp_2")
           }
           projected <- project(b0=b0, 
                                b1=b1, 
@@ -644,6 +664,7 @@ add_q <- function(df){
               q025 = quantile(damage, .025), 
               q05  = quantile(damage, .05),
               q25  = quantile(damage, .25),
+              q50  = quantile(damage, .5),
               q75  = quantile(damage, .75),
               q95  = quantile(damage, .95),
               q975 = quantile(damage, .975), 
