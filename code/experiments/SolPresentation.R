@@ -13,7 +13,8 @@ source(paste0(code, "code/0_funcs.R"))
 # SPECIFY PARAMETERS ------------------------------------------------------
 
 max_lags <- 10
-
+gen_data <- FALSE
+if(gen_data){
 for(data in c("old", "new")){
     
   if(data == 'old') old <- TRUE else old <- FALSE
@@ -134,8 +135,15 @@ for(data in c("old", "new")){
   write_csv(cum.ME,  paste0(dir.out, "0_cumulative_marginal_effect.csv"))
   write_csv(central, paste0(dir.out, "0_projected_damages_central.csv"))
   write_csv(uncert,  paste0(dir.out, "0_projected_damages_uncert.csv"))
-  
+  }
+}
   # PLOTS -------------------------------------------------------------------
+for(data in c("old", "new")){
+  dir.out <- paste0(dir, "/presentations/norway/", data, "_data/")
+  sep.ME <- read_csv(paste0(dir.out, "0_separated_marginal_effects.csv"))
+  cum.ME <- read_csv(paste0(dir.out, "0_cumulative_marginal_effect.csv"))
+  central <- read_csv(paste0(dir.out, "0_projected_damages_central.csv"))
+  uncert  <- read_csv(paste0(dir.out, "0_projected_damages_uncert.csv"))
   
   ## 1. 0, 1 and 5 lag models: projected damages -------
   plot_global_damages(central %>% filter(lags %in% c(0, 1, 5)), 
@@ -169,54 +177,53 @@ for(data in c("old", "new")){
   ## 2. box_plots  ---------------------------------------------
   
   uncert %>%
+    left_join(central) %>% 
     filter(year == 2100) %>% 
     ggplot(aes(x = as.factor(lags))) +
     geom_hline(yintercept = 0, color = "grey") +
     geom_boxplot(
-      aes(ymin = q05, lower = q25, middle = q50, upper = q75, ymax = q95),
+      aes(ymin = q05, lower = q25, middle = damage, upper = q75, ymax = q95),
       stat = "identity",
       alpha = 0.6
     ) +
-    geom_point(data = central %>% filter(year == 2100), 
-               aes(x = as.factor(lags), y = damage), shape = 2)+
+    # geom_point(data = central %>% filter(year == 2100), 
+    #            aes(x = as.factor(lags), y = damage), shape = 2)+
     facet_wrap(~type)+
     labs(y = "2100 Damages (%GDP)", 
          x = "Number of lags in model", 
          caption = paste0("Boxes show the interquartile range (25th-75th percentiles).", 
                           "\nWhiskers show the 5th-95th percentile range.", 
-                          "\nCentral line shows the median estimate.", 
-                          "\nPoints show mean estimate.") )
+                          "\nCentral line shows the mean estimate.") )
   
   ggsave(paste0(dir.out, "2a_2100_damages_boxplots.pdf"), 
          height = 6, width = 10)
   
   uncert %>%
+    left_join(central) %>% 
     filter(year == 2100, type == "Growth") %>% 
     ggplot(aes(x = as.factor(lags))) +
     geom_hline(yintercept = 0, color = "grey") +
     geom_boxplot(
-      aes(ymin = q05, lower = q25, middle = q50, upper = q75, ymax = q95),
+      aes(ymin = q05, lower = q25, middle = damage, upper = q75, ymax = q95),
       stat = "identity",
       alpha = 0.6
     ) +
-    geom_point(data = central %>% filter(year == 2100, type == "Growth"), 
-               aes(x = as.factor(lags), y = damage), shape = 2)+
     labs(y = "2100 Damages (%GDP)", 
          x = "Number of lags in model", 
          caption = paste0("Boxes show the interquartile range (25th-75th percentiles).", 
                           "\nWhiskers show the 5th-95th percentile range.", 
-                          "\nCentral line shows the median estimate.", 
-                          "\nPoints show mean estimate.") )
+                          "\nCentral line shows the median estimate.") )
   
   ggsave(paste0(dir.out, "2b_growth_2100_damages_boxplots.pdf"), 
          height = 6, width = 10)
   
   uncert %>%
+    left_join(central) %>% 
     filter(year == 2100, type == "Levels") %>% 
     ggplot(aes(x = as.factor(lags))) +
     geom_hline(yintercept = 0, color = "grey") +
     geom_boxplot(
-      aes(ymin = q05, lower = q25, middle = q50, upper = q75, ymax = q95),
+      aes(ymin = q05, lower = q25, middle = damage, upper = q75, ymax = q95),
       stat = "identity",
       alpha = 0.6
     ) +
@@ -226,8 +233,7 @@ for(data in c("old", "new")){
          x = "Number of lags in model", 
          caption = paste0("Boxes show the interquartile range (25th-75th percentiles).", 
                           "\nWhiskers show the 5th-95th percentile range.", 
-                          "\nCentral line shows the median estimate.", 
-                          "\nPoints show mean estimate.") )
+                          "\nCentral line shows the median estimate.") )
   
   ggsave(paste0(dir.out, "2c_levels_2100_damages_boxplots.pdf"), 
          height = 6, width = 10)
@@ -260,13 +266,14 @@ for(data in c("old", "new")){
   ggsave(paste0(dir.out, "4_0_lag_proj_damages.pdf"), 
          height = 5, width = 10)
   
-  
-  ggplot() + 
-    geom_vline(xintercept = 2020, linetype="dashed", color = "black") +
-    geom_line(data = central, aes(x=year, y = damage, color = lags_id, group=lags_id)) + 
-    facet_wrap(~type)+ 
-    scale_color_viridis_d(name = "Model")+
-    ylab("Damages, %GDP 2100") + xlab("Year")
+  central %>% 
+    mutate(lags_id = fct_reorder(lags_id, lags)) %>%
+    ggplot() + 
+      geom_vline(xintercept = 2020, linetype="dashed", color = "black") +
+      geom_line(aes(x=year, y = damage, color = lags_id, group=lags_id)) + 
+      facet_wrap(~type)+ 
+      scale_color_viridis_d(name = "Model")+
+      ylab("Damages, %GDP 2100") + xlab("Year")
   ggsave(paste0(dir.out, "4_1_proj_damages.pdf"), 
          height = 3.5, width = 8)
 }
