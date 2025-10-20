@@ -13,7 +13,8 @@ source(paste0(code, "code/0_funcs.R"))
 # SPECIFY PARAMETERS ------------------------------------------------------
 
 max_lags <- 10
-gen_data <- FALSE
+gen_data <- TRUE
+
 if(gen_data){
 for(data in c("old", "new")){
     
@@ -26,7 +27,7 @@ for(data in c("old", "new")){
   yrs <- get_years()
   
   # Load regression data 
-  df.reg <- load_historic_data(dir, lags=max_lags, max.year = 2019, old=TRUE)
+  df.reg <- load_historic_data(dir, lags=max_lags, max.year = 2019, old=old)
   
   # Filter to period we are going to use in plotting / getting baseline. 
   # Should interpolate missing values to get full panel?
@@ -261,10 +262,11 @@ for(data in c("old", "new")){
   
   plot_global_damages(central %>% filter(lags == 0), 
                       uncert %>% filter(lags == 0)) + 
-    facet_wrap(~type+lags_id, nrow=1, scales='free')
+    facet_wrap(~type+lags_id, nrow=1, scales='free') + 
+    ylab("Damages (%GDP)") + xlab("Year")
   
   ggsave(paste0(dir.out, "4_0_lag_proj_damages.pdf"), 
-         height = 5, width = 10)
+         height = 4, width = 8)
   
   central %>% 
     mutate(lags_id = fct_reorder(lags_id, lags)) %>%
