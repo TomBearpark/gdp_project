@@ -683,15 +683,15 @@ plot_global_damages <- function(central, uncert, vline=2020){
     geom_line(data = central, aes(x = year, y = damage), color='red')
 }
 
-plot_proj <- function(pdf, vline=2020){
+plot_proj <- function(pdf, vline=2020, nrow=2){
   pdf %>% 
     ggplot() + 
     geom_vline(xintercept=vline, linetype=2)+
     geom_line(aes(x = year, y = value, color = scen)) + 
-    facet_wrap(~ID+name, scales='free')
+    facet_wrap(~ID+name, scales='free', nrow=nrow)
 }
 
-plotdf_mats <- function(toPlot, base, proj, plt=T, vline=2020){
+plotdf_mats <- function(toPlot, base, proj, plt=T, vline=2020, nrow=2){
   
   pdf <- map_dfr(
     toPlot, 
@@ -721,6 +721,6 @@ plotdf_mats <- function(toPlot, base, proj, plt=T, vline=2020){
     pivot_longer(cols = c(temp, y, g, dam)) %>% 
     mutate(name = fct_relevel(name, c("temp", "g", "y", "dam")))
   
-  if(plt) return(plot_proj(pdf, vline))
+  if(plt) return(plot_proj(pdf, vline, nrow=nrow))
   else return(pdf)
 }
