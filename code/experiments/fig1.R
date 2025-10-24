@@ -52,7 +52,8 @@ yrs <- get_years(base_start_year = 1990, end_data_year = 2019,
                  start_proj_year = 2020, end_proj_year = 2095)
 
 # Load regression data 
-df.reg <- load_historic_data(paste0(dir, "/data/historic/"), lags=max_lags)
+dir.df <- "~/Library/CloudStorage/Dropbox/gdp-temp/"
+df.reg <- load_historic_data(dir.df, lags=max_lags, max.year = 2019, old=TRUE)
 
 # Filter to period we are going to use in plotting / getting baseline. 
 # Should interpolate missing values to get full panel?
@@ -93,6 +94,7 @@ proj <- pre.proj$proj
 
 files <- list.files(path = paste0(dir, "data/cmip6_countrylevel/"), 
                     pattern = "*countrytemp.csv", full.names = F)
+
 mods <- str_remove_all(files, "cmip6_|_countrytemp.csv") 
 
 # Only use climate models that go to 2099
@@ -124,12 +126,6 @@ df.clim <-
     mutate(warming = temp_proj -first(temp_proj)) %>% 
   ungroup()
   
-df.clim  %>% 
-  filter(ID %in% toPlot) %>% 
-  ggplot() + 
-  geom_line(aes(x = year, y = warming, color = model, group=model)) + 
-  facet_wrap(~ID, scales='free')
-
 # Some checks to make sure its in the right shape  
 stopifnot(all(sort(unique(df.base$ID)) %in% sort(unique(df.clim$ID)) ))
 
@@ -140,7 +136,7 @@ df.clim <- df.clim %>%
 
 # PROJECTION --------------------------------------------------------------
 
-lags <- 0
+lags <- 10
 df.pop <- df.base %>% select(ID, pop)
 m      <- run_reg(df.reg, type=type, lags=lags)
 models <- unique(df.clim$model)
@@ -168,7 +164,7 @@ for (i in seq_along(models)) {
     yrs = yrs, 
     lags = lags, 
     df.pop = df.pop, 
-    uncertainty = TRUE,
+    uncertainty = FALSE,
     reduce_uncert = FALSE, 
     draws = draws
   )
@@ -185,11 +181,108 @@ pdf.uncert  <- bind_rows(pdf.uncert)
 gc()
 
 # Plotting ----------------------------------------------------------------
-
-pdf.central %>% 
+library(patchwork)
+(pdf.central %>% 
   ggplot() + 
-  geom_line(aes(x = year, y= damage, color = model, group=model)) + 
-  scale_color_viridis_d() 
+  geom_line(aes(x = year, y= damage,  color=model)) + 
+  scale_color_viridis_d()  + 
+    theme(legend.position = 'none')
+  )+
+(df.clim  %>% 
+  left_join(df.pop) %>% 
+  summarize(warming = weighted.mean(warming, pop), .by=c(year, model)) %>% 
+  ggplot() + 
+  geom_line(aes(x = year, y = warming, color = model))+
+   scale_color_viridis_d() 
+ )
+
+df.clim %>% 
+  filter(year == 2095) %>% 
+  left_join(pdf.central) %>% 
+  gg
+
+df_sum <- df.clim %>% 
+  left_join(df.pop) %>% 
+  summarize(warming = weighted.mean(warming, pop), .by = c(year, model))
+
+# find highest warming in 2100
+max_point <- df_sum %>% 
+  filter(year == max(year)) %>% 
+  slice_max(warming, n = 1) %>% 
+  left_join(pdf.central)
+
+min_point <- df_sum %>% 
+  filter(year == max(year)) %>% 
+  slice_min(warming, n = 1) %>% 
+  left_join(pdf.central)
+
+df_sum %>%
+  mutate(model = fct_reorder(model, warming)) %>%
+  ggplot(aes(x = year, y = warming, color = model)) +
+  geom_line() +
+  geom_segment(
+    data = max_point,
+    aes(
+      x = year - 15, 
+      y = warming - 0.3,
+      xend = year, 
+      yend = warming
+    ),
+    arrow = arrow(length = unit(0.15, "inches")),
+    color = "orange",
+    inherit.aes = FALSE
+  ) +
+  geom_point(data = max_point, size = 3, color = "red") +
+  annotate(
+    "text",
+    x = max_point$year - 18,
+    y = max_point$warming - 0.3,
+    label = paste0("Highest warming (", max_point$model, ")\n", 
+                   round(max_point$warming, 2), " °C and ", 
+                   -round(max_point$damage, 2), " % GDP in ", max_point$year
+                   ),
+    hjust = 1,
+    size = 3,
+    color = "orange"
+  ) +
+  geom_segment(
+    data = min_point,
+    aes(
+      x = year - 15, 
+      y = warming - 3,
+      xend = year, 
+      yend = warming
+    ),
+    arrow = arrow(length = unit(0.15, "inches")),
+    color = "purple",
+    inherit.aes = FALSE
+  ) +
+  geom_point(data = min_point, size = 3, color = "red") +
+  annotate(
+    "text",
+    x = min_point$year - 18,
+    y = min_point$warming - 3,
+    label = paste0("Lowest warming (", min_point$model, ")\n", 
+                   round(min_point$warming, 2), " °C and ", 
+                   -round(min_point$damage, 2), " % GDP in ", min_point$year
+    ),
+    hjust = 1,
+    size = 3,
+    color = "purple"
+  ) +
+  coord_cartesian(xlim = range(df_sum$year)) +  # prevents x-axis extension
+  theme(legend.position = "none")+ 
+  # scale_color_gradientn(
+  #   colors = c("#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c")
+  # )+
+  labs(title = "Global average warming under different climate models",
+       x = "Year",
+       y = "Warming (°C)")
+
+
+
+
+
 
 uncert.2095 <- pdf.uncert %>% filter(year == max(yrs$proj)) %>% 
   left_join(df.pop) %>% 

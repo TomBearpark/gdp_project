@@ -23,6 +23,7 @@
   # plotting various stages of the analysis
 
 # RUNNING REGRESSIONS -----------------------------------------------------
+require(arrow)
 
 # Helper to create leave one out
 leave_one_out <- function(data, vars, group_vars, stub = "loo") {
@@ -242,6 +243,7 @@ get_me_sep <- function(m,
 
 get_me_cumulative <- function(m, lags, name="temp", 
                               type="growth", xrange=seq(0, 30, by = 5), id="", 
+                              name_type = "full",
                               plot=T){
   
   var <- get_var(type, name=name)
@@ -252,10 +254,14 @@ get_me_cumulative <- function(m, lags, name="temp",
         function(temp){
           ff <- ""
           for(lag in 0:lags){
-            ff <- paste0(ff, 
-                         paste0(  "l", lag, "_", var, "1 + ", 
-                                "2*l", lag, "_", var, "2*", temp," + ")
-                         )
+            if(name_type == "full"){
+              l1 =  paste0(  "l", lag, "_", var, "1 + ")
+              l2 =  paste0("2*l", lag, "_", var, "2*", temp," + ")
+            }else if(name_type == "short"){
+              l1 =  paste0(  "`l(", var, "1, ", lag, ")`+")
+              l2 =  paste0("2*`l(", var, "2, ", lag, ")`*", temp," + ")
+            }
+            ff <- paste0(ff, paste0(l1,  l2))
           }
           ff <- str_remove(ff, " \\+ $") # Remove trailing " + "
           # browser()
