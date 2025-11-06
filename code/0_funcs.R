@@ -349,6 +349,7 @@ format_pre_proj <- function(yrs, df, base, proj){
   for(tt in yrs$pre.ids){
     
     yr <- yrs$pre[tt]
+    print(paste0(tt, ", yr: ", yr))
     
     # -- Temperature
     base$temp[, tt] <- proj$temp[, tt] <- df %>% 
@@ -421,10 +422,12 @@ load_pop_ssp <- function(dir, scen){
 
 # Warming here is either a scalar, for the total warming over the full projection
 # or a dataframe, with annual warming for each year in the projection
-format_post_proj_baseline <- function(yrs, base, proj, warming){
+format_post_proj_baseline <- function(yrs, base, proj, warming, df.base, df.g=NULL){
   
   if(is.data.frame(warming)) {
     check_ID_order(base$temp, warming, yrs$proj[1])
+    check_ID_order(base$temp, df.base, yrs$proj[1])
+    if(!is.null(df.g)) check_ID_order(base$temp, df.g, yrs$proj[1])
   }else{
     stopifnot(is.numeric(warming))
   }
@@ -450,7 +453,12 @@ format_post_proj_baseline <- function(yrs, base, proj, warming){
     }
     
     # -- Growth
-    base$g[,tt] <- df.base$g
+    if(!is.null(df.g)){
+      base$g[,tt] <- df.g %>% filter(year == yrs$yrs[tt]) %>% arrange(ID) %>% pull(g)  
+    }else{
+      base$g[,tt] <- df.base$g
+    }
+    
     
     # -- GDP
     base$y[,tt] <- (1 + base$g[, tt]) * base$y[,tt-1]
@@ -540,21 +548,31 @@ global_damages <- function(proj,
                            base, 
                            df.base, 
                            yrs, 
-                           add_global_gdp=FALSE){
+                           add_global_gdp = FALSE){
+  w <- df.base$pop
+  
   map_dfr(
     1:yrs$TT, 
     function(tt){
-      pc.diff    <- 100*(proj$y[,tt]-base$y[,tt]) / base$y[,tt]
-      tot.damage <- weighted.mean(pc.diff, df.base$pop)
-      out.df <- tibble(year = yrs$yrs[tt], damage = tot.damage)
-      if(add_global_gdp){
+      y_proj <- proj$y[, tt]
+      y_base <- base$y[, tt]
+      
+      wm_proj <- weighted.mean(y_proj, w = w, na.rm = TRUE)
+      wm_base <- weighted.mean(y_base, w = w, na.rm = TRUE)
+      
+      damage <- 100 * (wm_proj - wm_base) / wm_base
+      
+      out.df <- tibble(year = yrs$yrs[tt], damage = damage)
+      
+      if (add_global_gdp) {
         out.df <- out.df %>% 
-          mutate(global_gdp = sum(base$y[,tt] * df.base$pop))
+          mutate(global_gdp = sum(y_base * w, na.rm = TRUE))
       }
       out.df
     }
-  )  
+  )
 }
+
 
 get_damages <- function(m, 
                         type, 

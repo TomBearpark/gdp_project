@@ -12,11 +12,13 @@ source(paste0(code, "code/0_funcs.R"))
 
 # SPECIFY PARAMETERS ------------------------------------------------------
 
-max_lags <- 10
+max_lags <- 20
 gen_data <- TRUE
+data <- "new"
 
 if(gen_data){
-for(data in c("old", "new")){
+# for(data in c("old", "new")){
+  
     
   if(data == 'old') old <- TRUE else old <- FALSE
   dir.out <- paste0(dir, "/presentations/norway/", data, "_data/")
@@ -68,7 +70,7 @@ for(data in c("old", "new")){
                             "median") %>% 
     filter(ID %in% df$ID)
   
-  post.proj <- format_post_proj_baseline(yrs, base, proj, warming)
+  post.proj <- format_post_proj_baseline(yrs, base, proj, warming, df.base)
   base <- post.proj$base
   proj <- post.proj$proj
   
@@ -79,12 +81,27 @@ for(data in c("old", "new")){
   
   # GET results -----------------------------------------------------------------
   opts   <- expand_grid(lags=0:max_lags, type=c("levels", "growth"))
-  df.pop <- df.base %>% select(ID, pop)
   
   # Run models
   MM <- pmap(opts, function(lags, type) 
     run_reg(df.reg, type = type, lags = lags, FE='ID+year+ID[year]')) |>
     set_names(pmap_chr(opts, \(lags, type) paste0(type, lags)))
+  
+  map_dfr(MM, ~ tibble(n=nobs(.x), 
+                       aic = AIC(.x), 
+                       bic = BIC(.x), 
+                       # r2 = r2(.x),
+                       wr2 = r2(.x, type = "wr2"), 
+                       ar2 = r2(.x, type = "ar2"), 
+                       war2 = r2(.x, type = "war2")), .id='model') %>% 
+    mutate(type = str_remove(model, "[0-9]+"), 
+           lags = as.integer(str_remove(model, "^(levels|growth)"))) %>%
+    pivot_longer(cols = -c(model, type, lags)) %>% 
+    ggplot() + 
+    geom_point(aes(x = lags, y = value)) + 
+    geom_line(aes(x = lags, y = value, color=type)) + 
+    facet_wrap(~name, scales='free', nrow=1)
+  ggsave(paste0(dir.out, "model_fit_stats.pdf"), height = 2, width = 10)
   
   # Get cumulative marginal effects
   cum.ME <- pmap_dfr(
@@ -106,6 +123,7 @@ for(data in c("old", "new")){
     }
   )
   
+  df.pop <- df.base %>% select(ID, pop)
   # Get projected damages 
   pdf <- pmap(
     opts,
@@ -136,10 +154,10 @@ for(data in c("old", "new")){
   write_csv(cum.ME,  paste0(dir.out, "0_cumulative_marginal_effect.csv"))
   write_csv(central, paste0(dir.out, "0_projected_damages_central.csv"))
   write_csv(uncert,  paste0(dir.out, "0_projected_damages_uncert.csv"))
-  }
+  # }
 }
   # PLOTS -------------------------------------------------------------------
-for(data in c("old", "new")){
+# for(data in c("old", "new")){
   dir.out <- paste0(dir, "/presentations/norway/", data, "_data/")
   sep.ME <- read_csv(paste0(dir.out, "0_separated_marginal_effects.csv"))
   cum.ME <- read_csv(paste0(dir.out, "0_cumulative_marginal_effect.csv"))
@@ -278,4 +296,4 @@ for(data in c("old", "new")){
       ylab("Damages, %GDP 2100") + xlab("Year")
   ggsave(paste0(dir.out, "4_1_proj_damages.pdf"), 
          height = 3.5, width = 8)
-}
+# }
