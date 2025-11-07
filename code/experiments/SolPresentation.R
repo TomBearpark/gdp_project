@@ -93,7 +93,8 @@ if(gen_data){
                        # r2 = r2(.x),
                        wr2 = r2(.x, type = "wr2"), 
                        ar2 = r2(.x, type = "ar2"), 
-                       war2 = r2(.x, type = "war2")), .id='model') %>% 
+                       war2 = r2(.x, type = "war2")), 
+          .id='model') %>% 
     mutate(type = str_remove(model, "[0-9]+"), 
            lags = as.integer(str_remove(model, "^(levels|growth)"))) %>%
     pivot_longer(cols = -c(model, type, lags)) %>% 
@@ -102,6 +103,23 @@ if(gen_data){
     geom_line(aes(x = lags, y = value, color=type)) + 
     facet_wrap(~name, scales='free', nrow=1)
   ggsave(paste0(dir.out, "model_fit_stats.pdf"), height = 2, width = 10)
+  
+  map_dfr(MM, 
+          function(x){
+            b1 <- coef(x)[str_detect(names(coef(x)), "temp_1")]
+            b2 <- coef(x)[str_detect(names(coef(x)), "temp_2")]
+            tibble(t.opt = sum(b1) / (-1*2*sum(b2)))
+          },
+          .id = 'model'
+  ) %>%
+    mutate(type = str_remove(model, "[0-9]+"), 
+           lags = as.integer(str_remove(model, "^(levels|growth)"))) %>%
+    ggplot() +
+    geom_hline(yintercept = 0, linetype="dashed", color = "black") +
+    geom_hline(yintercept = 13, linetype="dashed", color = "black") +
+    geom_point(aes(x = lags, y = t.opt)) +
+    geom_line(aes(x = lags, y = t.opt, color=type))
+  ggsave(paste0(dir.out, "t_opt.pdf"), height = 4, width = 6)
   
   # Get cumulative marginal effects
   cum.ME <- pmap_dfr(
